@@ -1,0 +1,163 @@
+/* public/css/reporte.css */
+
+/* Estilos generales para la impresión */
+@media print {
+    @page {
+        margin: 0.5in;
+    }
+    
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        color: #333;
+        line-height: 1.4;
+        font-size: 12pt; /* Tamaño estándar para documentos impresos */
+    }
+    
+    /* Forzar que los elementos no se corten entre páginas */
+    .no-break {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+}
+
+/* Estilos para pantalla (opcional, solo para previsualización) */
+@media screen {
+    body {
+        background-color: #f5f5f5;
+        padding: 20px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .report-container {
+        background-color: white;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 30px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        border-radius: 4px;
+    }
+}
+
+/* Encabezado del reporte */
+.report-header {
+    text-align: center;
+    border-bottom: 3px solid #1976d2;
+    padding-bottom: 15px;
+    margin-bottom: 25px;
+}
+
+.report-header h1 {
+    color: #1976d2;
+    margin: 0 0 5px 0;
+    font-size: 24px;
+}
+
+.report-header h2 {
+    color: #2e7d32;
+    margin: 0 0 10px 0;
+    font-size: 20px;
+}
+
+.report-header p {
+    margin: 3px 0;
+    font-size: 14px;
+}
+
+/* Cuadrícula de información */
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+    margin: 15px 0;
+}
+
+.info-item {
+    background-color: #e3f2fd;
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.info-item strong {
+    color: #1976d2;
+}
+
+/* Secciones del reporte */
+.report-section {
+    margin-bottom: 25px;
+}
+
+.section-title {
+    font-weight: bold;
+    color: #1976d2;
+    font-size: 18px;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #ddd;
+}
+
+.subsection-title {
+    font-weight: 600;
+    color: #2e7d32;
+    margin: 15px 0 8px 0;
+}
+
+/* Cajas de contenido */
+.content-box {
+    background-color: #f9f9f9;
+    border-left: 4px solid #1976d2;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 0 4px 4px 0;
+}
+
+.content-box.indicaciones {
+    border-left-color: #2e7d32;
+    background-color: #f0f7ff;
+}
+
+/* Texto preformateado */
+.preformatted {
+    white-space: pre-wrap;
+    font-family: inherit;
+    margin: 0;
+}
+
+/* Pie de página */
+.report-footer {
+    margin-top: 40px;
+    text-align: center;
+    font-style: italic;
+    color: #666;
+}
+
+.report-footer p {
+    margin: 5px 0;
+}
+
+/* Botón de impresión (solo visible en pantalla) */
+.print-button {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+@media print {
+    .print-button {
+        display: none;
+    }
+}
+
+/* Mensajes especiales */
+.important-note {
+    background-color: #fff3e0;
+    border-left: 4px solid #ff9800;
+    padding: 15px;
+    margin: 20px 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 11px;
+}
