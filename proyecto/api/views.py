@@ -225,9 +225,8 @@ def crear_usuario_admin(request):
 # === VIEWSETS PARA MODELOS ===
 
 class MedicoViewSet(viewsets.ModelViewSet):
-    queryset = Medico.objects.all()
+    queryset = Medico.objects.select_related('especialidad').all()
     serializer_class = MedicoSerializer
-
 
 class PacienteViewSet(viewsets.ModelViewSet):
     queryset = Paciente.objects.all()

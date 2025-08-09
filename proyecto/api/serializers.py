@@ -1,7 +1,14 @@
 from rest_framework import serializers
 from .models import *
 
+class EspecialidadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Especialidad
+        fields = '__all__'
+        
 class MedicoSerializer(serializers.ModelSerializer):
+    especialidad = EspecialidadSerializer(read_only=True)  # Incluye los datos completos de la especialidad
+
     class Meta:
         model = Medico
         fields = '__all__'
@@ -49,10 +56,7 @@ class ConsultaSerializer(serializers.ModelSerializer):
         consulta = Consulta.objects.create(**validated_data)
         return consulta
 
-class EspecialidadSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Especialidad
-        fields = '__all__'
+
 
 class HistoriaClinicaSerializer(serializers.ModelSerializer):
     paciente_detalle = PacienteSerializer(source='paciente', read_only=True)
