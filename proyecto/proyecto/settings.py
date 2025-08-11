@@ -1,6 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
-from decouple import config
+from decouple import config,Csv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,8 +14,7 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = [  'localhost',    '127.0.0.1',    '192.168.1.111',    '0.0.0.0',   'https://sistema-medico-4cew.onrender.com',]
-
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -132,12 +131,9 @@ AUTH_USER_MODEL = 'api.Usuario'
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
+
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = [
-   "http://localhost:3000",     # Para desarrollo local en la misma máquina
-   "http://192.168.1.111:3000",
-   "https://sistema-medico-nine.vercel.app",
-]
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
 
 # Internationalization
 LANGUAGE_CODE = 'es-es'
