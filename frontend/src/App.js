@@ -15,7 +15,7 @@ import RegistrarUsuario from './pages/Usuarios';
 import Configuracion from './pages/Configuracion';
 import HistoriaClinica from './pages/HistoriaClinica';
 import AgendarConsulta from './pages/AgendarConsulta'
-import { useMediaQuery, useTheme } from '@mui/material'; // Agregar estos imports
+import { useMediaQuery, useTheme, Box } from '@mui/material'; // Agregar estos imports
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -82,17 +82,23 @@ function App() {
 
     return (
       <>
-        <Sidebar onLogout={handleLogout} userRole={userRole}/>
-        <main style={{
-          flexGrow: 1,
-          padding: isMobile ? '10px' : '20px', // Menos padding en móviles
-          marginLeft: isMobile ? '0' : '240px', // 0 en móviles, 240px en desktop
-          marginTop: isMobile ? '60px' : '0', // Espacio para el botón de menú en móviles
-          transition: 'margin 0.3s ease',
-          width: isMobile ? '100%' : `calc(100% - ${isMobile ? 0 : 240}px)` // Ajustar ancho
-        }}>
+        <Sidebar onLogout={handleLogout} userRole={userRole} />
+
+        <Box
+            component="main"
+            sx={{
+            flexGrow: 1,
+            p: { xs: 1, sm: 3 },
+            ml: { sm: '240px' }, // Solo en pantallas >= sm
+            mt: { xs: '60px', sm: 0 }, // Ajusta si tienes un header fijo en móvil
+            width: { sm: 'calc(100% - 240px)' },
+            transition: 'margin 0.3s ease',
+            minHeight: '100vh',
+            backgroundColor: 'background.default',
+            }}
+        >
           {children}
-        </main>
+        </Box>
       </>
     );
   };

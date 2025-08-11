@@ -14,7 +14,7 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = [  'localhost',    '127.0.0.1',    '192.168.1.111',    '0.0.0.0',]
+ALLOWED_HOSTS = [  'localhost',    '127.0.0.1',    '192.168.1.111',    '0.0.0.0',   'https://sistema-medico-4cew.onrender.com',]
 
 # Application definition
 INSTALLED_APPS = [
@@ -136,6 +136,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
    "http://localhost:3000",     # Para desarrollo local en la misma máquina
    "http://192.168.1.111:3000",
+   "https://sistema-medico-nine.vercel.app",
 ]
 
 # Internationalization
@@ -149,3 +150,5 @@ STATIC_URL = 'static/'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+#postgresql://uxazd2iwsirm87prqpr0:RMFDi7NdQq8oIbXpcLpLNUYmi7QcaK@bqnc5jl3aj7upyte0beh-postgresql.services.clever-cloud.com:5432/bqnc5jl3aj7upyte0beh

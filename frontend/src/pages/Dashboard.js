@@ -1,14 +1,24 @@
 // pages/Consultas.js
 import React from 'react';
 import {
-    Button,
+    Button, Box
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 
 export default function Dashboard() {
 
   const navigate = useNavigate();
-  return <div>Bienvenido a Consultas
+  return <Box 
+     sx={{
+          
+      
+          borderRadius: 1,
+          bgcolor: 'primary.main',
+          '&:hover': {
+            bgcolor: 'primary.dark',
+          },
+        }}
+  >Bienvenido a Consultas
     {/* En Dashboard.js si userType === 'paciente' */}
 <Button 
   variant="contained" 
@@ -18,6 +28,6 @@ export default function Dashboard() {
 >
   Agendar Nueva Consulta
 </Button>
-  </div>;
+  </Box>;
 
 }
