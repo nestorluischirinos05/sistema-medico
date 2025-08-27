@@ -15,7 +15,7 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = [  'localhost',    '127.0.0.1',    '192.168.1.111',    '0.0.0.0',   'https://sistema-medico-4cew.onrender.com',]
+#ALLOWED_HOSTS = [  'localhost',    '127.0.0.1',    '192.168.1.111',    '0.0.0.0',   'https://sistema-medico-4cew.onrender.com',]
 
 # Application definition
 INSTALLED_APPS = [
@@ -139,7 +139,12 @@ CORS_ALLOWED_ORIGINS = [
    "http://192.168.1.111:3000",
    "https://sistema-medico-nine.vercel.app",
 ]
-
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "sistema-medico-4cew.onrender.com",  # ✅ Dominio de tu backend en Render
+    "*.onrender.com",                    # ✅ Permite cualquier subdominio de Render (recomendado)
+]
 # Internationalization
 LANGUAGE_CODE = 'es-es'
 TIME_ZONE = 'America/Caracas'
