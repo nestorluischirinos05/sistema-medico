@@ -8,18 +8,11 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  List,
-  ListItem,
   ListItemText,
   ListItemIcon,
   CircularProgress,
   Alert,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+  Button,  
   AccordionActions,
   Chip,
   Divider,
@@ -30,10 +23,10 @@ import {
   Paper as MuiPaper,
   IconButton,
   useMediaQuery,
-  useTheme,
+  useTheme
 } from '@mui/material';
 import { useParams } from 'react-router-dom';
-import axios from 'axios';
+import apiClient from '../services/apiClient.js'; // ✅ Cambiado de axios a apiClient
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MedicalServicesIcon from '@mui/icons-material/MedicalServices';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -43,7 +36,13 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ScienceIcon from '@mui/icons-material/Science';
 import InfoIcon from '@mui/icons-material/Info';
 import PrintIcon from '@mui/icons-material/Print';
-import CONFIG from '../config.js'
+import CheckIcon from '@mui/icons-material/Check';
+
+import CONFIG from '../config.js';
+import generarReceta from '../utils/generarReceta.js'
+import AntecedentesModal from '../components/AntecedentesModal.js';
+import DiagnosticoModal from '../components/DiagnosticoModal.js';
+import TratamientoModal from '../components/TratamientoModal.js';
 
 // Estilos personalizados para los acordeones
 const StyledAccordion = styled(Accordion)(({ theme }) => ({
@@ -115,10 +114,12 @@ const PrintButton = styled(IconButton)(({ theme }) => ({
 }));
 
 const HistoriaClinica = () => {
+  const hoy = new Date();
+  const fecha = hoy.toISOString().split('T')[0]; // "YYYY-MM-DD"
   const { pacienteId } = useParams();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  
+
   const [historia, setHistoria] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -133,10 +134,27 @@ const HistoriaClinica = () => {
     descripcion: '',
     indicaciones: '',
     duracion_dias: '',
-    fecha_inicio: ''
+    fecha_inicio: fecha,
   });
   const [selectedDiagnostico, setSelectedDiagnostico] = useState(null);
 
+  // ✅ Estado para antecedentes médicos
+  const [antecedentes, setAntecedentes] = useState({
+    enfermedades_cronicas: '',
+    cirugias_previas: '',
+    alergias: '',
+    medicamentos_actuales: '',
+    antecedentes_familiares: '',
+    fuma: false,
+    paquetes_por_dia: '',
+    alcohol: 'nunca',
+    ejercicio: '',
+    dieta: '',
+  });
+  const [loadingAntecedentes, setLoadingAntecedentes] = useState(true);
+  const [openAntecedentes, setOpenAntecedentes] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   useEffect(() => {
     if (!pacienteId) {
       setError('No se especificó un paciente.');
@@ -148,7 +166,7 @@ const HistoriaClinica = () => {
       setLoading(true);
       setError('');
       try {
-        const res = await axios.get(`${CONFIG.API_BASE_URL}/api/historia-clinica/paciente/${pacienteId}/`);
+        const res = await apiClient.get(`${CONFIG.API_BASE_URL}/api/historia-clinica/paciente/${pacienteId}/`);
         const data = {
           ...res.data,
           consultas: Array.isArray(res.data.consultas) ? res.data.consultas : [],
@@ -157,23 +175,29 @@ const HistoriaClinica = () => {
           observaciones: res.data.observaciones || '',
         };
         setHistoria(data);
-        setLoading(false);
       } catch (err) {
         console.error('Error al cargar historia clínica:', err);
         setError(err.response?.data?.error || 'No se pudo cargar la historia clínica.');
+      } finally {
         setLoading(false);
       }
     };
 
+    const cargarAntecedentes = async () => {
+      try {
+        const res = await apiClient.get(`${CONFIG.API_BASE_URL}/api/antecedentes/${pacienteId}/`);
+        setAntecedentes(res.data);
+      } catch (err) {
+        console.error('Error al cargar antecedentes:', err);
+        // Puede que no existan aún
+      } finally {
+        setLoadingAntecedentes(false);
+      }
+    };
+
     obtenerHistoria();
+    cargarAntecedentes();
   }, [pacienteId]);
-
-  if (loading) return <CircularProgress sx={{ mt: 4, display: 'block', mx: 'auto' }} />;
-  if (error) return <Alert severity="error" sx={{ m: 4 }}>{error}</Alert>;
-  if (!historia) return <Alert sx={{ m: 4 }}>No se encontró información.</Alert>;
-
-  const nombrePaciente = historia.paciente_detalle?.nombre || '';
-  const apellidoPaciente = historia.paciente_detalle?.apellido || '';
 
   const handleOpenDiagnostico = (consultaId) => {
     setDiagnosticoData({ ...diagnosticoData, consulta: consultaId });
@@ -191,40 +215,42 @@ const HistoriaClinica = () => {
 
   const handleSubmitDiagnostico = async () => {
     try {
-      await axios.post(`${CONFIG.API_BASE_URL}/api/diagnosticos/`, diagnosticoData);
-      alert('Diagnóstico registrado correctamente');
+      await apiClient.post(`${CONFIG.API_BASE_URL}/api/diagnosticos/`, diagnosticoData);
+      setSuccessMessage('Diagnóstico registrado correctamente');
+      setTimeout(() => setSuccessMessage(''), 5000);
       handleCloseDiagnostico();
-      const res = await axios.get(`${CONFIG.API_BASE_URL}/api/historia-clinica/paciente/${pacienteId}/`);
+      const res = await apiClient.get(`${CONFIG.API_BASE_URL}/api/historia-clinica/paciente/${pacienteId}/`);
       setHistoria({
         ...res.data,
         consultas: Array.isArray(res.data.consultas) ? res.data.consultas : []
       });
     } catch (err) {
       console.error(err);
-      alert('Error al registrar diagnóstico');
+      setErrorMessage('Error al registrar diagnóstico');
+      setTimeout(() => setErrorMessage(''), 5000);
     }
   };
 
   const handleOpenTratamiento = (diagnosticoId) => {
     setSelectedDiagnostico(diagnosticoId);
-    setTratamientoData({ 
+    setTratamientoData({
       diagnostico: diagnosticoId,
       descripcion: '',
       indicaciones: '',
       duracion_dias: '',
-      fecha_inicio: new Date().toISOString().split('T')[0]
+      fecha_inicio: fecha
     });
     setOpenTratamiento(true);
   };
 
   const handleCloseTratamiento = () => {
     setOpenTratamiento(false);
-    setTratamientoData({ 
-      diagnostico: '', 
-      descripcion: '', 
+    setTratamientoData({
+      diagnostico: '',
+      descripcion: '',
       indicaciones: '',
-      duracion_dias: '', 
-      fecha_inicio: '' 
+      duracion_dias: '',
+      fecha_inicio: ''
     });
     setSelectedDiagnostico(null);
   };
@@ -236,7 +262,8 @@ const HistoriaClinica = () => {
   const handleSubmitTratamiento = async () => {
     try {
       if (!tratamientoData.descripcion.trim()) {
-        alert('Por favor ingrese el tratamiento');
+        setSuccessMessage('Por favor ingrese el tratamiento');
+        setTimeout(() => setSuccessMessage(''), 5000);
         return;
       }
       const datosTratamiento = {
@@ -244,10 +271,11 @@ const HistoriaClinica = () => {
         descripcion: tratamientoData.descripcion,
         indicaciones: tratamientoData.indicaciones || null
       };
-      await axios.post(`${CONFIG.API_BASE_URL}/api/tratamientos/`, datosTratamiento);
-      alert('Tratamiento registrado correctamente');
+      await apiClient.post(`${CONFIG.API_BASE_URL}/api/tratamientos/`, datosTratamiento);
+      setSuccessMessage('Tratamiento registrado correctamente');
+      setTimeout(() => setSuccessMessage(''), 5000);
       handleCloseTratamiento();
-      const res = await axios.get(`${CONFIG.API_BASE_URL}/api/historia-clinica/paciente/${pacienteId}/`);
+      const res = await apiClient.get(`${CONFIG.API_BASE_URL}/api/historia-clinica/paciente/${pacienteId}/`);
       setHistoria({
         ...res.data,
         consultas: Array.isArray(res.data.consultas) ? res.data.consultas : []
@@ -255,9 +283,11 @@ const HistoriaClinica = () => {
     } catch (err) {
       console.error('Error al registrar tratamiento:', err);
       if (err.response?.data) {
-        alert(`Error al registrar tratamiento: ${JSON.stringify(err.response.data)}`);
+        setErrorMessage(`Error al registrar tratamiento: ${JSON.stringify(err.response.data)}`);
+        setTimeout(() => setErrorMessage(''), 5000);
       } else {
-        alert('Error al registrar tratamiento');
+        setErrorMessage('Error al registrar tratamiento');
+        setTimeout(() => setErrorMessage(''), 5000);
       }
     }
   };
@@ -273,260 +303,117 @@ const HistoriaClinica = () => {
   };
 
   const handlePrintTratamiento = (tratamiento, diagnosticoDescripcion, medicoNombre, fechaConsulta) => {
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Receta Médica</title>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>
-            @media print {
-              @page {
-                margin: 0.5in;
-              }
-            }
-            body {
-              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-              max-width: 800px;
-              margin: 0 auto;
-              padding: 20px;
-              color: #333;
-              line-height: 1.4;
-            }
-            .header {
-              text-align: center;
-              border-bottom: 3px solid #1976d2;
-              padding-bottom: 15px;
-              margin-bottom: 25px;
-            }
-            .header h1 {
-              color: #1976d2;
-              margin: 0 0 5px 0;
-              font-size: 24px;
-            }
-            .header h2 {
-              color: #2e7d32;
-              margin: 0 0 10px 0;
-              font-size: 20px;
-            }
-            .header p {
-              margin: 3px 0;
-              font-size: 14px;
-            }
-            .section {
-              margin-bottom: 25px;
-            }
-            .section-title {
-              font-weight: bold;
-              color: #1976d2;
-              font-size: 18px;
-              margin-bottom: 10px;
-              padding-bottom: 5px;
-              border-bottom: 1px solid #ddd;
-            }
-            .content {
-              background-color: #f9f9f9;
-              border-left: 4px solid #1976d2;
-              padding: 15px;
-              margin: 10px 0;
-              border-radius: 0 4px 4px 0;
-            }
-            .content.indicaciones {
-              border-left-color: #2e7d32;
-              background-color: #f0f7ff;
-            }
-            .info-grid {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-              gap: 10px;
-              margin: 15px 0;
-            }
-            .info-item {
-              background-color: #e3f2fd;
-              padding: 10px;
-              border-radius: 4px;
-              font-size: 14px;
-            }
-            .info-item strong {
-              color: #1976d2;
-            }
-            .footer {
-              margin-top: 40px;
-              text-align: center;
-              font-style: italic;
-              color: #666;
-            }
-            pre {
-              white-space: pre-wrap;
-              font-family: inherit;
-              margin: 0;
-            }
-            @media screen {
-              body {
-                max-width: none;
-              }
-            }
-            @media print {
-              body {
-                margin: 0;
-                padding: 15px;
-              }
-            }
-            @media (max-width: 600px) {
-              body {
-                padding: 10px;
-              }
-              .header h1 {
-                font-size: 20px;
-              }
-              .header h2 {
-                font-size: 18px;
-              }
-              .info-grid {
-                grid-template-columns: 1fr;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>RECETA MÉDICA</h1>
-            <h2>HOSPITAL CENTRAL</h2>
-            <p>Av. Principal 123, Ciudad Salud</p>
-            <p>Tel: (0212) 555-1234 | Email: info@hospitalcentral.com</p>
-          </div>
-          
-          <div class="info-grid">
-            <div class="info-item">
-              <strong>Paciente:</strong> ${nombrePaciente} ${apellidoPaciente}
-            </div>
-            <div class="info-item">
-              <strong>Fecha Emisión:</strong> ${formatearFecha(new Date().toISOString())}
-            </div>
-            <div class="info-item">
-              <strong>Médico:</strong> Dr. ${medicoNombre}
-            </div>
-            <div class="info-item">
-              <strong>Fecha Consulta:</strong> ${formatearFecha(fechaConsulta)}
-            </div>
-          </div>
-          
-          <div class="section">
-            <div class="section-title">DIAGNÓSTICO</div>
-            <div class="content">
-              <pre>${diagnosticoDescripcion}</pre>
-            </div>
-          </div>
-          
-          <div class="section">
-            <div class="section-title">TRATAMIENTO</div>
-            <div class="content">
-              <pre>${tratamiento.descripcion || 'No especificado'}</pre>
-            </div>
-          </div>
-          
-          ${tratamiento.indicaciones ? `
-          <div class="section">
-            <div class="section-title">INDICACIONES</div>
-            <div class="content indicaciones">
-              <pre>${tratamiento.indicaciones}</pre>
-            </div>
-          </div>
-          ` : ''}
-          
-          ${(tratamiento.duracion_dias || tratamiento.fecha_inicio) ? `
-          <div class="section">
-            <div class="section-title">DETALLES DEL TRATAMIENTO</div>
-            <div class="info-grid">
-              ${tratamiento.fecha_inicio ? `
-              <div class="info-item">
-                <strong>Inicio del tratamiento:</strong> ${formatearFecha(tratamiento.fecha_inicio)}
-              </div>
-              ` : ''}
-              ${tratamiento.duracion_dias ? `
-              <div class="info-item">
-                <strong>Duración:</strong> ${tratamiento.duracion_dias} días
-              </div>
-              ` : ''}
-            </div>
-          </div>
-          ` : ''}
-          
-          <div class="footer">
-            <p>______________________________________________________</p>
-            <p>Firma y Sello del Médico</p>
-            <div class="important-note">
-              <p>Esta receta es válida por 10 días a partir de la fecha de emisión.</p>
-              <p>Presente esta receta en cualquier farmacia autorizada.</p>
-            </div>
-          </div>
-          
-          <script>
-            window.onload = function() {
-              window.print();
-            }
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    const nombrePaciente = `${historia?.paciente_detalle?.nombre || ''} ${historia?.paciente_detalle?.apellido || ''}`;
+    generarReceta(tratamiento, diagnosticoDescripcion, medicoNombre, fechaConsulta, nombrePaciente);
   };
 
+  const handleOpenAntecedentes = () => {
+    setOpenAntecedentes(true);
+  };
+
+  const handleCloseAntecedentes = () => {
+    setOpenAntecedentes(false);
+  };
+
+  const handleAntecedentesChange = (e) => {
+    setAntecedentes({ ...antecedentes, [e.target.name]: e.target.value });
+  };
+
+  const handleCheckbox = (field) => (e) => {
+    setAntecedentes({ ...antecedentes, [field]: e.target.checked });
+  };
+
+  const handleSubmitAntecedentes = async () => {
+    try {
+      await apiClient.put(`${CONFIG.API_BASE_URL}/api/antecedentes/${pacienteId}/`, antecedentes);
+      setSuccessMessage('Antecedentes médicos actualizados correctamente');
+      setTimeout(() => setSuccessMessage(''), 5000);
+      handleCloseAntecedentes();
+    } catch (err) {
+      console.error('Error al guardar antecedentes:', err);
+      setErrorMessage('Error al guardar los antecedentes');
+      setTimeout(() => setErrorMessage(''), 5000);
+    }
+  };
+
+  if (loading) return <CircularProgress sx={{ mt: 4, display: 'block', mx: 'auto' }} />;
+  if (error) return <Alert severity="error" sx={{ m: 4 }}>{error}</Alert>;
+  if (!historia) return <Alert sx={{ m: 4 }}>No se encontró información.</Alert>;
+
+  const nombrePaciente = historia.paciente_detalle?.nombre || '';
+  const apellidoPaciente = historia.paciente_detalle?.apellido || '';
+
   return (
-    <Container 
-      maxWidth="lg" 
-      sx={{ 
-        mt: isMobile ? 2 : 4, 
+    <Container
+      maxWidth="lg"
+      sx={{
+        mt: isMobile ? 2 : 4,
         mb: isMobile ? 2 : 4,
         px: isMobile ? 1 : 3
       }}
     >
-      <Paper sx={{ 
-        padding: isMobile ? 2 : 3, 
+      {successMessage && (
+  <Alert 
+    icon={<CheckIcon fontSize="inherit" />} 
+    severity="success" 
+    sx={{ mb: 2 }}
+  >
+    {successMessage}
+  </Alert>
+)}
+
+{errorMessage && (
+  <Alert 
+      severity="error" 
+    sx={{ mb: 2 }}
+  >
+    {errorMessage}
+  </Alert>
+)}
+      <Paper sx={{
+        padding: isMobile ? 2 : 3,
         boxShadow: 3,
         borderRadius: isMobile ? 2 : 4
       }}>
         <Box sx={{ textAlign: 'center', mb: isMobile ? 2 : 3 }}>
-          <Typography 
-            variant={isMobile ? "h5" : "h4"} 
-            gutterBottom 
+          <Typography
+            variant={isMobile ? "h5" : "h4"}
+            gutterBottom
             sx={{ fontWeight: 'bold', color: 'primary.main' }}
           >
             Historia Clínica
           </Typography>
-          <Typography 
-            variant={isMobile ? "body1" : "h6"} 
+          <Typography
+            variant={isMobile ? "body1" : "h6"}
             color="textSecondary"
           >
             {nombrePaciente} {apellidoPaciente}
           </Typography>
-          <Chip 
-            icon={<EventIcon />} 
-            label={`Inicio: ${formatearFecha(historia.fecha_inicio)}`} 
-            color="primary" 
-            variant="outlined" 
-            sx={{ 
+          <Chip
+            icon={<EventIcon />}
+            label={`Inicio: ${formatearFecha(historia.fecha_inicio)}`}
+            color="primary"
+            variant="outlined"
+            sx={{
               mt: 1,
               fontSize: isMobile ? '0.7rem' : '0.8125rem'
             }}
             size={isMobile ? "small" : "medium"}
           />
         </Box>
-        
+
         {historia.observaciones && (
-          <Box sx={{ 
-            mb: isMobile ? 2 : 3, 
-            p: isMobile ? 1.5 : 2, 
-            backgroundColor: 'grey.100', 
-            borderRadius: 2 
+          <Box sx={{
+            mb: isMobile ? 2 : 3,
+            p: isMobile ? 1.5 : 2,
+            backgroundColor: 'grey.100',
+            borderRadius: 2
           }}>
-            <Typography 
-              variant={isMobile ? "body1" : "h6"} 
-              sx={{ 
-                display: 'flex', 
-                alignItems: 'center', 
+            <Typography
+              variant={isMobile ? "body1" : "h6"}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
                 mb: 1,
                 fontSize: isMobile ? '1rem' : '1.25rem'
               }}
@@ -534,8 +421,8 @@ const HistoriaClinica = () => {
               <AssignmentIcon sx={{ mr: 1, fontSize: isMobile ? 20 : 24 }} />
               Observaciones Generales
             </Typography>
-            <Typography 
-              variant="body2" 
+            <Typography
+              variant="body2"
               sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
             >
               {historia.observaciones}
@@ -543,12 +430,52 @@ const HistoriaClinica = () => {
           </Box>
         )}
 
+        {/* Sección de Antecedentes Médicos */}
+        <Accordion defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'background.default' }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+              Antecedentes Médicos
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            {loadingAntecedentes ? (
+              <CircularProgress size={24} />
+            ) : (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography><strong>Enfermedades crónicas:</strong> {antecedentes.enfermedades_cronicas || 'Ninguna'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Cirugías previas:</strong> {antecedentes.cirugias_previas || 'Ninguna'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Alergias:</strong> {antecedentes.alergias || 'Ninguna'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Medicamentos actuales:</strong> {antecedentes.medicamentos_actuales || 'Ninguno'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Antecedentes familiares:</strong> {antecedentes.antecedentes_familiares || 'Ninguno'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography><strong>Hábitos:</strong> Fuma: {antecedentes.fuma ? 'Sí' : 'No'}, Alcohol: {antecedentes.alcohol}, Ejercicio: {antecedentes.ejercicio || 'Ninguno'}</Typography>
+                </Grid>
+              </Grid>
+            )}
+          </AccordionDetails>
+          <AccordionActions>
+            <Button size="small" color="primary" onClick={handleOpenAntecedentes}>
+              Editar
+            </Button>
+          </AccordionActions>
+        </Accordion>
+
         <Box sx={{ mt: isMobile ? 2 : 3 }}>
-          <Typography 
-            variant={isMobile ? "h6" : "h5"} 
-            sx={{ 
-              mb: isMobile ? 1 : 2, 
-              display: 'flex', 
+          <Typography
+            variant={isMobile ? "h6" : "h5"}
+            sx={{
+              mb: isMobile ? 1 : 2,
+              display: 'flex',
               alignItems: 'center',
               fontSize: isMobile ? '1.125rem' : '1.5rem'
             }}
@@ -556,7 +483,7 @@ const HistoriaClinica = () => {
             <MedicalServicesIcon sx={{ mr: 1, fontSize: isMobile ? 20 : 24 }} />
             Consultas Médicas
           </Typography>
-          
+
           {historia.consultas.length === 0 ? (
             <Alert severity="info" sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}>
               No hay consultas registradas.
@@ -564,16 +491,16 @@ const HistoriaClinica = () => {
           ) : (
             historia.consultas.map((consulta) => {
               const diagnosticos = Array.isArray(consulta.diagnosticos) ? consulta.diagnosticos : [];
-              
+
               return (
-                <StyledAccordion 
-                  key={consulta.id} 
+                <StyledAccordion
+                  key={consulta.id}
                   elevation={3}
                   sx={{
                     borderRadius: isMobile ? 1 : 2
                   }}
                 >
-                  <StyledAccordionSummary 
+                  <StyledAccordionSummary
                     expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />}
                     sx={{
                       minHeight: isMobile ? 40 : 48,
@@ -585,15 +512,15 @@ const HistoriaClinica = () => {
                       },
                     }}
                   >
-                    <Box sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      width: '100%', 
+                    <Box sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      width: '100%',
                       alignItems: 'center',
                       flexDirection: isMobile ? 'column' : 'row',
                       gap: isMobile ? 0.5 : 0
                     }}>
-                      <Typography 
+                      <Typography
                         variant={isMobile ? "body2" : "h6"}
                         sx={{
                           textAlign: isMobile ? 'center' : 'left',
@@ -602,49 +529,49 @@ const HistoriaClinica = () => {
                       >
                         Dr. {consulta.medico_detalle?.nombre} {consulta.medico_detalle?.apellido}
                       </Typography>
-                      <Chip 
-                        label={formatearFecha(consulta.fecha)} 
+                      <Chip
+                        label={formatearFecha(consulta.fecha)}
                         size={isMobile ? "small" : "medium"}
-                        sx={{ 
-                          backgroundColor: 'white', 
+                        sx={{
+                          backgroundColor: 'white',
                           color: 'primary.main',
                           fontSize: isMobile ? '0.65rem' : '0.75rem'
                         }}
                       />
                     </Box>
                   </StyledAccordionSummary>
-                  
+
                   <AccordionDetails sx={{ p: isMobile ? 1 : 2 }}>
                     <Box sx={{ p: isMobile ? 0.5 : 1 }}>
-                      <Typography 
-                        variant={isMobile ? "body2" : "subtitle1"} 
-                        sx={{ 
-                          fontWeight: 'bold', 
-                          mb: 1, 
+                      <Typography
+                        variant={isMobile ? "body2" : "subtitle1"}
+                        sx={{
+                          fontWeight: 'bold',
+                          mb: 1,
                           color: 'primary.main',
                           fontSize: isMobile ? '0.875rem' : '1rem'
                         }}
                       >
                         Motivo de consulta:
                       </Typography>
-                      <Typography 
-                        variant="body2" 
-                        sx={{ 
-                          mb: 2, 
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          mb: 2,
                           fontStyle: 'italic',
                           fontSize: isMobile ? '0.8125rem' : '1rem'
                         }}
                       >
                         "{consulta.motivo}"
                       </Typography>
-                      
+
                       <Divider sx={{ my: isMobile ? 1 : 2 }} />
-                      
-                      <Typography 
-                        variant={isMobile ? "body1" : "h6"} 
-                        sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
+
+                      <Typography
+                        variant={isMobile ? "body1" : "h6"}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
                           mb: isMobile ? 1 : 2,
                           fontSize: isMobile ? '1rem' : '1.25rem'
                         }}
@@ -652,11 +579,11 @@ const HistoriaClinica = () => {
                         <DescriptionIcon sx={{ mr: 1, fontSize: isMobile ? 20 : 24 }} />
                         Diagnósticos
                       </Typography>
-                      
+
                       {diagnosticos.length > 0 ? (
                         diagnosticos.map((diag) => {
                           const tratamientos = Array.isArray(diag.tratamientos) ? diag.tratamientos : [];
-                          
+
                           return (
                             <Box key={diag.id} sx={{ mb: isMobile ? 1.5 : 3 }}>
                               <StyledCard sx={{
@@ -664,23 +591,23 @@ const HistoriaClinica = () => {
                                 mb: isMobile ? 1 : 2
                               }}>
                                 <CardContent sx={{ p: isMobile ? 1.5 : 2 }}>
-                                  <Box sx={{ 
-                                    display: 'flex', 
+                                  <Box sx={{
+                                    display: 'flex',
                                     alignItems: 'flex-start',
                                     flexDirection: isMobile ? 'column' : 'row',
                                     gap: isMobile ? 1 : 0
                                   }}>
-                                    <ListItemIcon sx={{ 
-                                      minWidth: isMobile ? 30 : 40, 
-                                      mt: isMobile ? 0 : 0.5 
+                                    <ListItemIcon sx={{
+                                      minWidth: isMobile ? 30 : 40,
+                                      mt: isMobile ? 0 : 0.5
                                     }}>
-                                      <DescriptionIcon 
-                                        color="primary" 
-                                        sx={{ fontSize: isMobile ? 20 : 24 }} 
+                                      <DescriptionIcon
+                                        color="primary"
+                                        sx={{ fontSize: isMobile ? 20 : 24 }}
                                       />
                                     </ListItemIcon>
-                                    <ListItemText 
-                                      primary={diag.descripcion || 'Sin descripción'} 
+                                    <ListItemText
+                                      primary={diag.descripcion || 'Sin descripción'}
                                       secondary={`Fecha: ${formatearFecha(diag.fecha)}`}
                                       primaryTypographyProps={{
                                         fontSize: isMobile ? '0.875rem' : '1rem',
@@ -691,17 +618,17 @@ const HistoriaClinica = () => {
                                       }}
                                     />
                                   </Box>
-                                  
-                                  <Box sx={{ 
-                                    mt: isMobile ? 1 : 2, 
+
+                                  <Box sx={{
+                                    mt: isMobile ? 1 : 2,
                                     pl: isMobile ? 0 : 5,
                                     width: '100%'
                                   }}>
-                                    <Button 
-                                      variant="outlined" 
+                                    <Button
+                                      variant="outlined"
                                       size={isMobile ? "small" : "medium"}
                                       onClick={() => handleOpenTratamiento(diag.id)}
-                                      sx={{ 
+                                      sx={{
                                         mb: isMobile ? 1 : 2,
                                         fontSize: isMobile ? '0.75rem' : '0.875rem',
                                         py: isMobile ? 0.5 : 1
@@ -710,16 +637,16 @@ const HistoriaClinica = () => {
                                     >
                                       {isMobile ? "Tratamiento" : "Agregar Tratamiento"}
                                     </Button>
-                                    
+
                                     {tratamientos.length > 0 && (
                                       <Box sx={{ mt: isMobile ? 1 : 2 }}>
-                                        <Typography 
-                                          variant={isMobile ? "body2" : "subtitle1"} 
-                                          sx={{ 
-                                            fontWeight: 'bold', 
-                                            mb: 1, 
-                                            color: 'secondary.main', 
-                                            display: 'flex', 
+                                        <Typography
+                                          variant={isMobile ? "body2" : "subtitle1"}
+                                          sx={{
+                                            fontWeight: 'bold',
+                                            mb: 1,
+                                            color: 'secondary.main',
+                                            display: 'flex',
                                             alignItems: 'center',
                                             fontSize: isMobile ? '0.875rem' : '1rem'
                                           }}
@@ -727,29 +654,28 @@ const HistoriaClinica = () => {
                                           <ScienceIcon sx={{ mr: 1, fontSize: isMobile ? 16 : 20 }} />
                                           Tratamientos Prescritos
                                         </Typography>
-                                        
+
                                         <Grid container spacing={isMobile ? 1 : 2}>
                                           {tratamientos.map((tratamiento, index) => (
-                                            <Grid item xs={12} key={`${diag.id}_trat_${index}`}>
-                                              <TreatmentSection 
+                                            <Grid item xs={12}  key={`${diag.id}_trat_${index}`} sx={{px:0}}>
+                                              <TreatmentSection
                                                 elevation={0}
                                                 sx={{
                                                   p: isMobile ? 1.5 : 2,
                                                   borderRadius: isMobile ? 1 : 2
                                                 }}
                                               >
-                                                {/* Encabezado con botón de impresión */}
-                                                <Box sx={{ 
-                                                  display: 'flex', 
-                                                  justifyContent: 'space-between', 
-                                                  alignItems: 'center', 
+                                                <Box sx={{
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center',
                                                   mb: 1,
                                                   flexDirection: isMobile ? 'column' : 'row',
                                                   gap: isMobile ? 1 : 0
                                                 }}>
-                                                  <SectionHeader 
-                                                    variant={isMobile ? "body1" : "h6"} 
-                                                    sx={{ 
+                                                  <SectionHeader
+                                                    variant={isMobile ? "body1" : "h6"}
+                                                    sx={{
                                                       mb: 0,
                                                       fontSize: isMobile ? '0.875rem' : '1.25rem'
                                                     }}
@@ -757,7 +683,7 @@ const HistoriaClinica = () => {
                                                     <ScienceIcon sx={{ mr: 1, fontSize: isMobile ? 16 : 24 }} />
                                                     Medicamento
                                                   </SectionHeader>
-                                                  <PrintButton 
+                                                  <PrintButton
                                                     size={isMobile ? "small" : "medium"}
                                                     onClick={() => handlePrintTratamiento(
                                                       tratamiento,
@@ -765,20 +691,18 @@ const HistoriaClinica = () => {
                                                       `${consulta.medico_detalle?.nombre} ${consulta.medico_detalle?.apellido}`,
                                                       consulta.fecha
                                                     )}
-                                                    sx={{ 
-                                                      alignSelf: isMobile ? 'flex-end' : 'auto'
-                                                    }}
+                                                    sx={{ alignSelf: isMobile ? 'flex-end' : 'auto' }}
                                                   >
                                                     <PrintIcon sx={{ fontSize: isMobile ? 18 : 24 }} />
                                                   </PrintButton>
                                                 </Box>
-                                                
-                                                <Typography 
-                                                  component="div" 
-                                                  variant="body2" 
-                                                  sx={{ 
-                                                    whiteSpace: 'pre-line', 
-                                                    mb: isMobile ? 1 : 2, 
+
+                                                <Typography
+                                                  component="div"
+                                                  variant="body2"
+                                                  sx={{
+                                                    whiteSpace: 'pre-line',
+                                                    mb: isMobile ? 1 : 2,
                                                     fontSize: isMobile ? '0.875rem' : '1.1rem',
                                                     fontWeight: 500,
                                                     color: 'text.primary'
@@ -786,15 +710,12 @@ const HistoriaClinica = () => {
                                                 >
                                                   {tratamiento.descripcion || 'Sin medicamento especificado'}
                                                 </Typography>
-                                                
-                                                {/* Indicaciones - con mejor separación visual */}
+
                                                 {tratamiento.indicaciones && (
                                                   <Box sx={{ mt: isMobile ? 1 : 2 }}>
-                                                    <SectionHeader 
+                                                    <SectionHeader
                                                       variant={isMobile ? "body2" : "subtitle1"}
-                                                      sx={{
-                                                        fontSize: isMobile ? '0.8125rem' : '1rem'
-                                                      }}
+                                                      sx={{ fontSize: isMobile ? '0.8125rem' : '1rem' }}
                                                     >
                                                       <InfoIcon sx={{ mr: 1, fontSize: isMobile ? 16 : 20 }} />
                                                       Indicaciones
@@ -804,10 +725,10 @@ const HistoriaClinica = () => {
                                                       borderRadius: isMobile ? 1 : 2,
                                                       mt: isMobile ? 0.5 : 1
                                                     }}>
-                                                      <Typography 
-                                                        component="div" 
-                                                        variant="body2" 
-                                                        sx={{ 
+                                                      <Typography
+                                                        component="div"
+                                                        variant="body2"
+                                                        sx={{
                                                           whiteSpace: 'pre-line',
                                                           color: 'secondary.dark',
                                                           fontSize: isMobile ? '0.8125rem' : '0.875rem'
@@ -818,37 +739,32 @@ const HistoriaClinica = () => {
                                                     </IndicationBox>
                                                   </Box>
                                                 )}
-                                                
-                                                {/* Información adicional en chips */}
-                                                <Box sx={{ 
-                                                  display: 'flex', 
-                                                  flexWrap: 'wrap', 
-                                                  gap: isMobile ? 0.5 : 1, 
+
+                                                <Box sx={{
+                                                  display: 'flex',
+                                                  flexWrap: 'wrap',
+                                                  gap: isMobile ? 0.5 : 1,
                                                   mt: isMobile ? 1 : 2,
                                                   justifyContent: 'center'
                                                 }}>
                                                   {tratamiento.fecha_inicio && (
-                                                    <Chip 
-                                                      icon={<EventIcon sx={{ fontSize: isMobile ? 14 : 16 }} />} 
-                                                      label={`Inicio: ${formatearFecha(tratamiento.fecha_inicio)}`} 
+                                                    <Chip
+                                                      icon={<EventIcon sx={{ fontSize: isMobile ? 14 : 16 }} />}
+                                                      label={`Inicio: ${formatearFecha(tratamiento.fecha_inicio)}`}
                                                       size={isMobile ? "small" : "medium"}
-                                                      variant="outlined" 
+                                                      variant="outlined"
                                                       color="primary"
-                                                      sx={{ 
-                                                        fontSize: isMobile ? '0.65rem' : '0.75rem'
-                                                      }}
+                                                      sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}
                                                     />
                                                   )}
                                                   {tratamiento.duracion_dias && (
-                                                    <Chip 
-                                                      icon={<AccessTimeIcon sx={{ fontSize: isMobile ? 14 : 16 }} />} 
-                                                      label={`Duración: ${tratamiento.duracion_dias} días`} 
+                                                    <Chip
+                                                      icon={<AccessTimeIcon sx={{ fontSize: isMobile ? 14 : 16 }} />}
+                                                      label={`Duración: ${tratamiento.duracion_dias} días`}
                                                       size={isMobile ? "small" : "medium"}
-                                                      variant="outlined" 
+                                                      variant="outlined"
                                                       color="secondary"
-                                                      sx={{ 
-                                                        fontSize: isMobile ? '0.65rem' : '0.75rem'
-                                                      }}
+                                                      sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}
                                                     />
                                                   )}
                                                 </Box>
@@ -865,22 +781,22 @@ const HistoriaClinica = () => {
                           );
                         })
                       ) : (
-                        <Box sx={{ 
-                          textAlign: 'center', 
+                        <Box sx={{
+                          textAlign: 'center',
                           p: isMobile ? 1.5 : 2,
                           borderRadius: isMobile ? 1 : 2,
                           backgroundColor: 'grey.50'
                         }}>
-                          <Typography 
+                          <Typography
                             color="textSecondary"
                             sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
                           >
                             Sin diagnósticos registrados.
                           </Typography>
-                          <Button 
-                            variant="contained" 
+                          <Button
+                            variant="contained"
                             onClick={() => handleOpenDiagnostico(consulta.id)}
-                            sx={{ 
+                            sx={{
                               mt: 1,
                               fontSize: isMobile ? '0.75rem' : '0.875rem',
                               py: isMobile ? 0.5 : 1
@@ -893,11 +809,8 @@ const HistoriaClinica = () => {
                         </Box>
                       )}
                     </Box>
-                    
-                    <AccordionActions sx={{ 
-                      p: 0,
-                      justifyContent: 'center'
-                    }}>
+
+                    <AccordionActions sx={{ p: 0, justifyContent: 'center' }}>
                       <Button
                         size={isMobile ? "small" : "medium"}
                         variant="contained"
@@ -917,202 +830,35 @@ const HistoriaClinica = () => {
             })
           )}
         </Box>
-        
-        {/* Modal para diagnóstico */}
-        <Dialog 
-          open={openDiagnostico} 
-          onClose={handleCloseDiagnostico} 
-          maxWidth="sm" 
-          fullWidth
-          fullScreen={isMobile}
-        >
-          <DialogTitle 
-            sx={{ 
-              backgroundColor: 'primary.main', 
-              color: 'white',
-              fontSize: isMobile ? '1.25rem' : '1.5rem'
-            }}
-          >
-            Registrar Diagnóstico
-          </DialogTitle>
-          <DialogContent 
-            sx={{ 
-              pt: 2,
-              px: isMobile ? 1.5 : 3
-            }}
-          >
-            <TextField
-              margin="normal"
-              name="descripcion"
-              label="Descripción del diagnóstico"
-              multiline
-              rows={isMobile ? 3 : 4}
-              fullWidth
-              value={diagnosticoData.descripcion}
-              onChange={handleDiagnosticoChange}
-              autoFocus
-              variant="outlined"
-              sx={{
-                '& .MuiInputBase-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiInputLabel-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                }
-              }}
-            />
-          </DialogContent>
-          <DialogActions sx={{ p: isMobile ? 1.5 : 2 }}>
-            <Button 
-              onClick={handleCloseDiagnostico} 
-              color="error"
-              size={isMobile ? "small" : "medium"}
-              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmitDiagnostico} 
-              variant="contained" 
-              color="primary"
-              disabled={!diagnosticoData.descripcion.trim()}
-              size={isMobile ? "small" : "medium"}
-              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-            >
-              Guardar
-            </Button>
-          </DialogActions>
-        </Dialog>
 
-        {/* Modal para tratamiento */}
-        <Dialog 
-          open={openTratamiento} 
-          onClose={handleCloseTratamiento} 
-          maxWidth="sm" 
-          fullWidth
-          fullScreen={isMobile}
-        >
-          <DialogTitle 
-            sx={{ 
-              backgroundColor: 'secondary.main', 
-              color: 'white',
-              fontSize: isMobile ? '1.25rem' : '1.5rem'
-            }}
-          >
-            Agregar Tratamiento e Indicaciones
-          </DialogTitle>
-          <DialogContent sx={{ px: isMobile ? 1.5 : 3 }}>
-            <TextField
-              margin="normal"
-              name="descripcion"
-              label="Tratamiento / Medicamento"
-              multiline
-              rows={isMobile ? 3 : 4}
-              fullWidth
-              value={tratamientoData.descripcion}
-              onChange={handleTratamientoChange}
-              autoFocus
-              variant="outlined"
-              helperText="Ej: Omeprazol 500 mg, Acetaminofén 500 mg, etc. (Usa Enter para saltos de línea)"
-              sx={{
-                '& .MuiInputBase-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiInputLabel-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiFormHelperText-root': {
-                  fontSize: isMobile ? '0.7rem' : '0.75rem'
-                }
-              }}
-            />
-            <TextField
-              margin="normal"
-              name="indicaciones"
-              label="Indicaciones"
-              multiline
-              rows={isMobile ? 3 : 4}
-              fullWidth
-              value={tratamientoData.indicaciones || ''}
-              onChange={handleTratamientoChange}
-              variant="outlined"
-              helperText="Ej: Tomar 1 tableta cada 8 horas, En ayunas, etc. (Usa Enter para saltos de línea)"
-              sx={{
-                '& .MuiInputBase-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiInputLabel-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiFormHelperText-root': {
-                  fontSize: isMobile ? '0.7rem' : '0.75rem'
-                }
-              }}
-            />
-            <TextField
-              margin="normal"
-              name="duracion_dias"
-              label="Duración (días)"
-              type="number"
-              fullWidth
-              value={tratamientoData.duracion_dias || ''}
-              onChange={handleTratamientoChange}
-              variant="outlined"
-              sx={{
-                '& .MuiInputBase-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiInputLabel-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                }
-              }}
-            />
-            <TextField
-              margin="normal"
-              name="fecha_inicio"
-              label="Fecha de inicio"
-              type="date"
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              value={tratamientoData.fecha_inicio}
-              onChange={handleTratamientoChange}
-              variant="outlined"
-              sx={{
-                '& .MuiInputBase-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                },
-                '& .MuiInputLabel-root': {
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                }
-              }}
-            />
-            <input
-              type="hidden"
-              name="diagnostico"
-              value={tratamientoData.diagnostico}
-            />
-          </DialogContent>
-          <DialogActions sx={{ p: isMobile ? 1.5 : 2 }}>
-            <Button 
-              onClick={handleCloseTratamiento} 
-              color="error"
-              size={isMobile ? "small" : "medium"}
-              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmitTratamiento} 
-              variant="contained" 
-              color="secondary"
-              disabled={!tratamientoData.descripcion.trim()}
-              size={isMobile ? "small" : "medium"}
-              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-            >
-              Guardar
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {/* Modal para diagnóstico */}
+        <DiagnosticoModal
+          open={openDiagnostico}
+          onClose={handleCloseDiagnostico}
+          data={diagnosticoData}
+          handleChange={handleDiagnosticoChange}
+          handleSubmit={handleSubmitDiagnostico}
+          isMobile={isMobile}
+        />
+
+        <TratamientoModal
+          open={openTratamiento}
+          onClose={handleCloseTratamiento}
+          data={tratamientoData}
+          handleChange={handleTratamientoChange}
+          handleSubmit={handleSubmitTratamiento}
+          isMobile={isMobile}
+        />
+
+        {/* Modal para editar antecedentes */}
+        <AntecedentesModal
+          open={openAntecedentes}
+          onClose={handleCloseAntecedentes}
+          antecedentes={antecedentes}
+          setAntecedentes={setAntecedentes}
+          handleSubmit={handleSubmitAntecedentes}
+          isMobile={isMobile}
+        />
       </Paper>
     </Container>
   );

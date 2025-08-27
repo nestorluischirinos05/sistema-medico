@@ -1,3 +1,4 @@
+from datetime import date
 from rest_framework import serializers
 from .models import *
 
@@ -13,6 +14,11 @@ class MedicoSerializer(serializers.ModelSerializer):
         model = Medico
         fields = '__all__'
 
+    especialidad_id = serializers.PrimaryKeyRelatedField(
+        queryset=Especialidad.objects.all(),
+        source='especialidad',
+        write_only=True)
+
 class PacienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Paciente
@@ -23,15 +29,30 @@ class TratamientoSerializer(serializers.ModelSerializer):
         model = Tratamiento
         fields = ['id', 'diagnostico', 'descripcion', 'indicaciones', 'duracion_dias', 'fecha_inicio']
 
+    def validate_fecha_inicio(self, value):
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)
+            except ValueError:
+                raise serializers.ValidationError("Formato de fecha inválido para 'fecha_inicio'. Usa YYYY-MM-DD.")
+        return value
+
 class DiagnosticoSerializer(serializers.ModelSerializer):
-    tratamiento = TratamientoSerializer(many=True, read_only=True)  # Un diagnóstico puede tener varios tratamientos
+    tratamiento = TratamientoSerializer(many=True, read_only=True)
 
     class Meta:
         model = Diagnostico
         fields = ['id', 'consulta', 'descripcion', 'fecha', 'tratamiento']
 
+    def validate_fecha(self, value):
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)  # Solo YYYY-MM-DD
+            except ValueError:
+                raise serializers.ValidationError("Formato de fecha inválido. Usa YYYY-MM-DD.")
+        return value
+
 class ConsultaSerializer(serializers.ModelSerializer):
-    # Cambia esta línea:
     diagnosticos = DiagnosticoSerializer(many=True, read_only=True, source='diagnostico_set')
     paciente_detalle = PacienteSerializer(source='paciente', read_only=True)
     medico_detalle = MedicoSerializer(source='medico', read_only=True)
@@ -40,9 +61,36 @@ class ConsultaSerializer(serializers.ModelSerializer):
         model = Consulta
         fields = [
             'id', 'paciente', 'medico', 'fecha', 'motivo',
-            'paciente_detalle', 'medico_detalle', 'diagnosticos'  # Cambia 'diagnostico' por 'diagnosticos'
+            'paciente_detalle', 'medico_detalle', 'diagnosticos'
         ]
 
+    def validate_fecha(self, value):
+        """
+        Asegura que el valor sea un objeto `date`, no `datetime`.
+        Si es string, se convierte correctamente.
+        """
+        if isinstance(value, str):
+            try:
+                # Convierte string ISO a date
+                return date.fromisoformat(value)
+            except ValueError:
+                raise serializers.ValidationError("Formato de fecha inválido. Usa YYYY-MM-DD.")
+        if not isinstance(value, date):
+            raise serializers.ValidationError("La fecha debe ser una fecha válida.")
+        return value
+
+    def create(self, validated_data):
+        paciente = validated_data['paciente']
+
+        # Crear historia clínica si no existe
+        HistoriaClinica.objects.get_or_create(
+            paciente=paciente,
+            defaults={'observaciones': 'Historia clínica creada automáticamente.'}
+        )
+
+        # Crear consulta
+        return Consulta.objects.create(**validated_data)
+    
     def create(self, validated_data):
         paciente = validated_data['paciente']
 
@@ -106,16 +154,78 @@ class RolSerializer(serializers.ModelSerializer):
         fields = '__all__' # o especifica los campos que necesitas, como ['id', 'nombre', 'codigo']
 
 class CitaSerializer(serializers.ModelSerializer):
-    # Opcional: Incluir detalles del paciente y médico en la respuesta
     paciente_detalle = PacienteSerializer(source='paciente', read_only=True)
     medico_detalle = MedicoSerializer(source='medico', read_only=True)
-    
+
     class Meta:
         model = Cita
-        fields = '__all__' # O especifica los campos que quieres exponer
-        read_only_fields = ('paciente', 'estado', 'fecha_solicitud') # El paciente se asigna automáticamente, estado y fecha_solicitud también
+        fields = '__all__'
+        read_only_fields = ('fecha_solicitud',)  # Solo esto es inmutable
 
-    def create(self, validated_data):
-        # El paciente se asignará en la vista basada en el usuario autenticado
-        # El estado se establece por defecto a 'solicitada'
-        return super().create(validated_data)
+    def update(self, instance, validated_data):
+        # Permitimos actualización de todos los campos permitidos por la vista
+        return super().update(instance, validated_data)
+
+class TipoExamenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TipoExamen
+        fields = '__all__'
+
+class ExamenMedicoSerializer(serializers.ModelSerializer):
+    paciente = PacienteSerializer(read_only=True)
+    paciente_id = serializers.PrimaryKeyRelatedField(
+        queryset=Paciente.objects.all(),
+        source='paciente',
+        write_only=True
+    )
+    medico = MedicoSerializer(read_only=True)
+    medico_id = serializers.PrimaryKeyRelatedField(
+        queryset=Medico.objects.all(),
+        source='medico',
+        write_only=True,
+        required=False
+    )
+    tipo_examen = TipoExamenSerializer(read_only=True)
+    tipo_examen_id = serializers.PrimaryKeyRelatedField(
+        queryset=TipoExamen.objects.all(),
+        source='tipo_examen',
+        write_only=True
+    )
+    diagnostico_relacionado = DiagnosticoSerializer(read_only=True)
+    diagnostico_relacionado_id = serializers.PrimaryKeyRelatedField(
+        queryset=Diagnostico.objects.all(),
+        source='diagnostico_relacionado',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+
+    # Campo para mostrar la URL del archivo
+    archivo_resultado_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExamenMedico
+        fields = [
+            'id', 'paciente', 'paciente_id', 'medico', 'medico_id',
+            'tipo_examen', 'tipo_examen_id', 'diagnostico_relacionado',
+            'diagnostico_relacionado_id', 'fecha_solicitud', 'fecha_realizacion',
+            'fecha_resultado', 'estado', 'observaciones', 'interpretacion_medica',
+            'archivo_resultado', 'archivo_resultado_url'
+        ]
+
+    def get_archivo_resultado_url(self, obj):
+        if obj.archivo_resultado:
+            return obj.archivo_resultado.url
+        return None
+
+class AntecedenteMedicoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AntecedenteMedico
+        fields = '__all__'
+        read_only_fields = ('paciente', 'fecha_registro')
+
+class NotificacionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notificacion
+        fields = ['id', 'tipo', 'titulo', 'mensaje', 'leida', 'fecha', 'metadata']
+        read_only_fields = ['id', 'fecha']

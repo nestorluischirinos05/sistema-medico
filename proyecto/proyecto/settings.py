@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
-from decouple import config,Csv
+from decouple import config
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,7 +15,8 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv())
+ALLOWED_HOSTS = [  'localhost',    '127.0.0.1',    '192.168.1.111',    '0.0.0.0',   'https://sistema-medico-4cew.onrender.com',]
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -131,9 +133,12 @@ AUTH_USER_MODEL = 'api.Usuario'
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
-
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
+CORS_ALLOWED_ORIGINS = [
+   "http://localhost:3000",     # Para desarrollo local en la misma máquina
+   "http://192.168.1.111:3000",
+   "https://sistema-medico-nine.vercel.app",
+]
 
 # Internationalization
 LANGUAGE_CODE = 'es-es'
@@ -146,5 +151,7 @@ STATIC_URL = 'static/'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 #postgresql://uxazd2iwsirm87prqpr0:RMFDi7NdQq8oIbXpcLpLNUYmi7QcaK@bqnc5jl3aj7upyte0beh-postgresql.services.clever-cloud.com:5432/bqnc5jl3aj7upyte0beh

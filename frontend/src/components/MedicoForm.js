@@ -25,8 +25,11 @@ import {
   useTheme,
   Alert,
   CircularProgress,
+  Divider,
+  InputAdornment,
+  Snackbar,
 } from '@mui/material';
-import { Add as AddIcon } from '@mui/icons-material';
+import { Add as AddIcon, Close as CloseIcon } from '@mui/icons-material';
 import axios from 'axios';
 import CONFIG from '../config.js';
 
@@ -36,24 +39,26 @@ const MedicoForm = () => {
 
   // Estado del formulario
   const [formData, setFormData] = useState({
+    correo: '',
+    password: '',
     nombre: '',
     apellido: '',
     dni: '',
     telefono: '',
-    especialidad: '',
+    especialidad_id: '',
   });
 
-  // Estado del modal
+  // Estado del modal y mensajes
   const [open, setOpen] = useState(false);
-
-  // Datos
   const [especialidades, setEspecialidades] = useState([]);
   const [medicos, setMedicos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingSubmit, setLoadingSubmit] = useState(false);
-  const [error, setError] = useState('');
+  const [loadingDni, setLoadingDni] = useState(false);
+  const [dniError, setDniError] = useState('');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // Cargar especialidades y médicos al montar
+  // Cargar datos iniciales
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -64,8 +69,7 @@ const MedicoForm = () => {
         setEspecialidades(especialidadesRes.data);
         setMedicos(medicosRes.data);
       } catch (err) {
-        setError('Error al cargar datos. Verifica la conexión con el servidor.');
-        console.error(err);
+        showSnackbar('Error al cargar datos. Verifica la conexión.', 'error');
       } finally {
         setLoading(false);
       }
@@ -73,29 +77,99 @@ const MedicoForm = () => {
     fetchData();
   }, []);
 
+  // Buscar DNI
+  useEffect(() => {
+    if (formData.dni.length === 0) {
+      setDniError('');
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      if (formData.dni.length < 6) return;
+
+      setLoadingDni(true);
+      try {
+        const res = await axios.get(`${CONFIG.API_BASE_URL}/api/buscar-medico/`, {
+          params: { dni: formData.dni }
+        });
+
+        if (res.data.existe) {
+          setDniError(`DNI ya registrado: ${res.data.nombre_completo}`);
+        } else {
+          setDniError('');
+        }
+      } catch (err) {
+        setDniError('Error al verificar el DNI');
+      } finally {
+        setLoadingDni(false);
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [formData.dni]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbar({ open: true, message, severity });
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (dniError && !loadingDni) {
+      showSnackbar(dniError, 'error');
+      return;
+    }
+
+    if (!formData.correo || !formData.password || !formData.nombre || !formData.apellido || !formData.dni || !formData.especialidad_id) {
+      showSnackbar('Completa todos los campos obligatorios.', 'warning');
+      return;
+    }
+
     setLoadingSubmit(true);
     try {
-      const response = await axios.post(`${CONFIG.API_BASE_URL}/api/medicos/`, formData);
-      setMedicos([response.data, ...medicos]); // Añadir al inicio
-      alert('✅ Médico registrado exitosamente');
+      // Registrar usuario
+      const userRes = await axios.post(`${CONFIG.API_BASE_URL}/api/registro/`, {
+        correo: formData.correo,
+        nombre: formData.nombre,
+        apellido: formData.apellido,
+        password: formData.password,
+        rol_codigo: 'medico',
+      });
+
+      // Registrar médico
+      const medicoRes = await axios.post(`${CONFIG.API_BASE_URL}/api/medicos/`, {
+        usuario: userRes.data.user.id,
+        nombre: formData.nombre,
+        apellido: formData.apellido,
+        dni: formData.dni,
+        telefono: formData.telefono,
+        especialidad_id: formData.especialidad_id,
+      });
+
+      setMedicos([medicoRes.data, ...medicos]);
+      showSnackbar('✅ Médico registrado exitosamente', 'success');
       setFormData({
+        correo: '',
+        password: '',
         nombre: '',
         apellido: '',
         dni: '',
         telefono: '',
-        especialidad: '',
+        especialidad_id: '',
       });
       setOpen(false);
     } catch (err) {
-      const errorMsg = err.response?.data?.error || 'Error al registrar médico';
-      alert(`❌ ${errorMsg}`);
-      console.error(err);
+      console.error('Error:', err.response?.data || err.message);
+      const errorMsg = err.response?.data?.error || 'Error al registrar el médico.';
+      showSnackbar(`❌ ${errorMsg}`, 'error');
     } finally {
       setLoadingSubmit(false);
     }
@@ -106,36 +180,45 @@ const MedicoForm = () => {
     if (!loadingSubmit) setOpen(false);
   };
 
-  // Estilo del modal
   const modalStyle = {
     position: 'absolute',
     top: '50%',
     left: '50%',
     transform: 'translate(-50%, -50%)',
-    width: isMobile ? '90%' : '500px',
+    width: isMobile ? '90%' : 600,
     bgcolor: 'background.paper',
-    borderRadius: 2,
+    borderRadius: 3,
     boxShadow: 24,
     p: 4,
     maxHeight: '90vh',
-    overflow: 'auto',
+    overflowY: 'auto',
   };
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 6 }}>
-      <Paper sx={{ p: 3, borderRadius: 3, boxShadow: 3 }}>
+      {/* Tarjeta principal */}
+      <Paper
+        sx={{
+          p: 3,
+          borderRadius: 3,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          backgroundColor: '#f8f9ff',
+        }}
+      >
         <Typography
           variant="h5"
           component="h1"
           gutterBottom
           align="center"
-          fontWeight="600"
-          color="primary"
+          fontWeight="bold"
+          color="primary.main"
+          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}
         >
+          <AddIcon />
           Gestión de Médicos
         </Typography>
 
-        {/* Botón flotante para abrir el modal */}
+        {/* Botón flotante */}
         <Box display="flex" justifyContent="flex-end" mb={3}>
           <Fab
             color="primary"
@@ -144,18 +227,25 @@ const MedicoForm = () => {
             sx={{
               boxShadow: 3,
               transition: 'all 0.3s ease',
-              '&:hover': { transform: 'scale(1.05)' },
+              '&:hover': { transform: 'scale(1.05)', boxShadow: 6 },
             }}
           >
             <AddIcon />
           </Fab>
         </Box>
 
-        {/* Tabla de médicos */}
-        <TableContainer component={Paper} sx={{ mt: 2, borderRadius: 2 }}>
+        {/* Tabla */}
+        <TableContainer
+          component={Paper}
+          sx={{
+            borderRadius: 2,
+            overflow: 'hidden',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+          }}
+        >
           <Table size={isMobile ? 'small' : 'medium'}>
-            <TableHead sx={{ bgcolor: 'primary.main' }}>
-              <TableRow>
+            <TableHead>
+              <TableRow sx={{ backgroundColor: '#1976d2' }}>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Nombre</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>DNI</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Especialidad</TableCell>
@@ -165,33 +255,28 @@ const MedicoForm = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">
+                  <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
                     <CircularProgress size={24} /> Cargando médicos...
-                  </TableCell>
-                </TableRow>
-              ) : error ? (
-                <TableRow>
-                  <TableCell colSpan={4} align="center">
-                    <Alert severity="error">{error}</Alert>
                   </TableCell>
                 </TableRow>
               ) : medicos.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">
-                    <Typography color="textSecondary">No hay médicos registrados</Typography>
+                  <TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                    No hay médicos registrados
                   </TableCell>
                 </TableRow>
               ) : (
                 medicos.map((medico) => (
                   <TableRow
                     key={medico.id}
+                    hover
                     sx={{
-                      '&:hover': { bgcolor: 'action.hover' },
-                      transition: 'background-color 0.2s',
+                      '&:nth-of-type(odd)': { backgroundColor: '#f9f9ff' },
+                      '&:hover': { backgroundColor: '#e3f2fd !important' },
                     }}
                   >
                     <TableCell>
-                      <Typography fontWeight="500">
+                      <Typography fontWeight={500} color="text.primary">
                         {medico.nombre} {medico.apellido}
                       </Typography>
                     </TableCell>
@@ -206,15 +291,53 @@ const MedicoForm = () => {
         </TableContainer>
       </Paper>
 
-      {/* Modal del formulario */}
+      {/* Modal */}
       <Modal open={open} onClose={handleClose}>
         <Box sx={modalStyle}>
-          <Typography variant="h6" fontWeight="600" mb={3}>
+          <Typography
+            variant="h6"
+            fontWeight="bold"
+            color="primary.main"
+            mb={2}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+          >
+            <AddIcon />
             Registrar Nuevo Médico
           </Typography>
+
           <form onSubmit={handleSubmit}>
-            <Grid container spacing={2} direction="column">
+            <Grid container spacing={2}>
+              {/* Datos del Médico */}
               <Grid item xs={12}>
+                <TextField
+                  name="dni"
+                  label="DNI del Médico"
+                  fullWidth
+                  required
+                  value={formData.dni}
+                  onChange={handleChange}
+                  disabled={loadingSubmit}
+                  size="small"
+                  error={!!dniError}
+                  helperText={loadingDni ? 'Verificando...' : dniError || 'Número de identificación'}
+                  InputProps={{
+                    endAdornment: loadingDni && (
+                      <InputAdornment position="end">
+                        <CircularProgress size={20} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      '& fieldset': { borderColor: '#b3d4fc' },
+                      '&:hover fieldset': { borderColor: '#1976d2' },
+                      '&.Mui-focused fieldset': { borderColor: '#1976d2' },
+                    },
+                  }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
                 <TextField
                   name="nombre"
                   label="Nombre"
@@ -222,10 +345,11 @@ const MedicoForm = () => {
                   required
                   value={formData.nombre}
                   onChange={handleChange}
-                  size={isMobile ? 'small' : 'medium'}
+                  size="small"
+                  sx={{ backgroundColor: 'white', borderRadius: 1 }}
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   name="apellido"
                   label="Apellido"
@@ -233,54 +357,84 @@ const MedicoForm = () => {
                   required
                   value={formData.apellido}
                   onChange={handleChange}
-                  size={isMobile ? 'small' : 'medium'}
+                  size="small"
+                  sx={{ backgroundColor: 'white', borderRadius: 1 }}
                 />
               </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  name="dni"
-                  label="DNI"
-                  fullWidth
-                  required
-                  value={formData.dni}
-                  onChange={handleChange}
-                  size={isMobile ? 'small' : 'medium'}
-                />
-              </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   name="telefono"
                   label="Teléfono"
                   fullWidth
                   value={formData.telefono}
                   onChange={handleChange}
-                  size={isMobile ? 'small' : 'medium'}
+                  size="small"
+                  sx={{ backgroundColor: 'white', borderRadius: 1 }}
                 />
               </Grid>
-              <Grid item xs={12}>
-                <FormControl fullWidth required>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth required size="small">
                   <InputLabel>Especialidad</InputLabel>
                   <Select
-                    name="especialidad"
-                    value={formData.especialidad}
+                    name="especialidad_id"
+                    value={formData.especialidad_id}
                     onChange={handleChange}
                     label="Especialidad"
-                    size={isMobile ? 'small' : 'medium'}
+                    sx={{ backgroundColor: 'white', borderRadius: 1 }}
                   >
-                    {especialidades.length === 0 ? (
-                      <MenuItem disabled>No hay especialidades</MenuItem>
-                    ) : (
-                      especialidades.map((esp) => (
-                        <MenuItem key={esp.id} value={esp.id}>
-                          {esp.nombre}
-                        </MenuItem>
-                      ))
-                    )}
+                    {especialidades.map((esp) => (
+                      <MenuItem key={esp.id} value={esp.id}>
+                        {esp.nombre}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
+
+              <Divider sx={{ my: 2, width: '100%' }} />
+
+              {/* Datos de Usuario */}
+              <Grid item xs={12}>
+                <Typography variant="subtitle1" fontWeight="bold" color="primary.main" gutterBottom>
+                  🔐 Credenciales de Acceso
+                </Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  name="correo"
+                  label="Correo Electrónico"
+                  type="email"
+                  fullWidth
+                  required
+                  value={formData.correo}
+                  onChange={handleChange}
+                  size="small"
+                  sx={{ backgroundColor: 'white', borderRadius: 1 }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  name="password"
+                  label="Contraseña"
+                  type="password"
+                  fullWidth
+                  required
+                  value={formData.password}
+                  onChange={handleChange}
+                  size="small"
+                  sx={{ backgroundColor: 'white', borderRadius: 1 }}
+                />
+              </Grid>
+
+              {/* Botones */}
               <Grid item xs={12} display="flex" justifyContent="flex-end" gap={2} mt={2}>
-                <Button onClick={handleClose} color="inherit" disabled={loadingSubmit}>
+                <Button
+                  onClick={handleClose}
+                  color="inherit"
+                  variant="outlined"
+                  disabled={loadingSubmit}
+                  sx={{ borderRadius: 2, fontWeight: 500 }}
+                >
                   Cancelar
                 </Button>
                 <Button
@@ -288,6 +442,14 @@ const MedicoForm = () => {
                   variant="contained"
                   color="primary"
                   disabled={loadingSubmit}
+                  sx={{
+                    backgroundColor: '#1976d2',
+                    '&:hover': { backgroundColor: '#1565c0' },
+                    borderRadius: 2,
+                    fontWeight: 600,
+                    px: 3,
+                    boxShadow: 2,
+                  }}
                 >
                   {loadingSubmit ? 'Registrando...' : 'Registrar Médico'}
                 </Button>
@@ -296,6 +458,28 @@ const MedicoForm = () => {
           </form>
         </Box>
       </Modal>
+
+      {/* Snackbar para mensajes */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ fontWeight: 500 }}
+          action={
+            <IconButton size="small" aria-label="close" color="inherit" onClick={handleCloseSnackbar}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          }
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

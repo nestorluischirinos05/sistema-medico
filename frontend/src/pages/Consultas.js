@@ -1,4 +1,4 @@
-// pages/Consultas.js (versión mejorada y responsive)
+// pages/Consultas.js
 import React, { useEffect, useState } from 'react';
 import {
   Container,
@@ -19,29 +19,36 @@ import {
   useTheme,
   IconButton,
   Tooltip,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import CONFIG from '../config.js'
+import apiClient from '../services/apiClient'; // ✅ Usamos apiClient
+import CONFIG from '../config';
 
 const Consultas = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
-  
+
   const [consultas, setConsultas] = useState([]);
   const [pacientes, setPacientes] = useState([]);
   const [medicos, setMedicos] = useState([]);
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [formLoading, setFormLoading] = useState(false);
+  const [alert, setAlert] = useState({ open: false, message: '', severity: 'success' });
+
   const [formData, setFormData] = useState({
     paciente: '',
     medico: '',
     fecha: '',
     motivo: '',
   });
-  const [loading, setLoading] = useState(true);
+
+  const [errors, setErrors] = useState({});
 
   // Cargar datos
   useEffect(() => {
@@ -49,17 +56,20 @@ const Consultas = () => {
       setLoading(true);
       try {
         const [consultasRes, pacientesRes, medicosRes] = await Promise.all([
-          axios.get(`${CONFIG.API_BASE_URL}/api/consultas/`),
-          axios.get(`${CONFIG.API_BASE_URL}/api/pacientes/`),
-          axios.get(`${CONFIG.API_BASE_URL}/api/medicos/`)
+          apiClient.get(`${CONFIG.API_BASE_URL}/api/consultas/`),
+          apiClient.get(`${CONFIG.API_BASE_URL}/api/pacientes/`),
+          apiClient.get(`${CONFIG.API_BASE_URL}/api/medicos/`),
         ]);
-        
         setConsultas(consultasRes.data);
         setPacientes(pacientesRes.data);
         setMedicos(medicosRes.data);
       } catch (err) {
         console.error('Error al cargar datos:', err);
-        alert('Error al cargar los datos');
+        setAlert({
+          open: true,
+          message: 'No se pudieron cargar los datos.',
+          severity: 'error',
+        });
       } finally {
         setLoading(false);
       }
@@ -68,30 +78,82 @@ const Consultas = () => {
     fetchData();
   }, []);
 
-  const handleOpen = () => setOpen(true);
+  const handleOpen = () => {
+    setOpen(true);
+    setFormData({ paciente: '', medico: '', fecha: '', motivo: '' });
+    setErrors({});
+  };
+
   const handleClose = () => {
     setOpen(false);
     setFormData({ paciente: '', medico: '', fecha: '', motivo: '' });
+    setErrors({});
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async () => {
-    try {
-      await axios.post(`${CONFIG.API_BASE_URL}/api/consultas/`, formData);
-      const res = await axios.get(`${CONFIG.API_BASE_URL}/api/consultas/`);
-      setConsultas(res.data);
-      handleClose();
-      alert('Consulta registrada correctamente');
-    } catch (err) {
-      console.error('Error al registrar consulta:', err.response?.data || err.message);
-      alert('Error al registrar consulta');
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    // Limpiar error al editar
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: '' }));
     }
   };
 
-  // Construir filas para el DataGrid
+  // Validación del formulario
+  const validate = () => {
+    const newErrors = {};
+
+    if (!formData.paciente) newErrors.paciente = 'Debe seleccionar un paciente';
+    if (!formData.medico) newErrors.medico = 'Debe seleccionar un médico';
+    if (!formData.fecha) {
+      newErrors.fecha = 'La fecha es obligatoria';
+    } else {
+      const selectedDate = new Date(formData.fecha);
+      if (isNaN(selectedDate.getTime())) {
+        newErrors.fecha = 'Fecha inválida';
+      } else if (selectedDate < new Date()) {
+        newErrors.fecha = 'No puede ser una fecha pasada';
+      }
+    }
+
+    if (formData.motivo && formData.motivo.length < 5) {
+      newErrors.motivo = 'El motivo debe tener al menos 5 caracteres';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!validate()) return;
+
+    setFormLoading(true);
+    try {
+      await apiClient.post(`${CONFIG.API_BASE_URL}/api/consultas/`, formData);
+      const res = await apiClient.get(`${CONFIG.API_BASE_URL}/api/consultas/`);
+      setConsultas(res.data);
+      handleClose();
+      setAlert({
+        open: true,
+        message: 'Consulta registrada correctamente.',
+        severity: 'success',
+      });
+    } catch (err) {
+      const errorMsg = err.response?.data?.error || 'Error al registrar la consulta';
+      setAlert({
+        open: true,
+        message: `Error: ${JSON.stringify(errorMsg)}`,
+        severity: 'error',
+      });
+      if (err.response?.data) {
+        setErrors(err.response.data);
+      }
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  // Filas para DataGrid
   const rows = consultas.map((c) => ({
     id: c.id,
     paciente: `${c.paciente_detalle?.nombre || ''} ${c.paciente_detalle?.apellido || ''}`,
@@ -102,34 +164,34 @@ const Consultas = () => {
   }));
 
   const columns = [
-    { 
-      field: 'paciente', 
-      headerName: 'Paciente', 
+    {
+      field: 'paciente',
+      headerName: 'Paciente',
       flex: isMobile ? 2 : 1,
-      minWidth: 120
-    },
-    { 
-      field: 'medico', 
-      headerName: 'Médico', 
-      flex: isMobile ? 2 : 1,
-      minWidth: 120
-    },
-    { 
-      field: 'fecha', 
-      headerName: 'Fecha', 
-      flex: 1,
-      minWidth: 100
-    },
-    { 
-      field: 'motivo', 
-      headerName: 'Motivo', 
-      flex: isMobile ? 2 : 1.5,
       minWidth: 150,
+    },
+    {
+      field: 'medico',
+      headerName: 'Médico',
+      flex: isMobile ? 2 : 1,
+      minWidth: 150,
+    },
+    {
+      field: 'fecha',
+      headerName: 'Fecha',
+      flex: 1,
+      minWidth: 120,
+    },
+    {
+      field: 'motivo',
+      headerName: 'Motivo',
+      flex: isMobile ? 2 : 1.5,
+      minWidth: 180,
       renderCell: (params) => (
         <Tooltip title={params.value}>
-          <span>{params.value?.length > 30 ? `${params.value.substring(0, 30)}...` : params.value}</span>
+          <span>{params.value?.length > 40 ? `${params.value.substring(0, 40)}...` : params.value}</span>
         </Tooltip>
-      )
+      ),
     },
     {
       field: 'acciones',
@@ -139,7 +201,6 @@ const Consultas = () => {
       sortable: false,
       renderCell: (params) => {
         const pacienteId = params.row.paciente_id;
-        
         if (!pacienteId) {
           return (
             <Typography variant="body2" color="error" sx={{ fontSize: '0.75rem' }}>
@@ -147,61 +208,62 @@ const Consultas = () => {
             </Typography>
           );
         }
-
         return (
           <Tooltip title="Ver Historia Clínica">
             <IconButton
-              size={isMobile ? "small" : "medium"}
+              size={isMobile ? 'small' : 'medium'}
               color="primary"
               onClick={() => navigate(`/historia/${pacienteId}`)}
-              sx={{ 
-                minWidth: 'auto',
-                padding: isMobile ? 0.5 : 1
-              }}
+              sx={{ p: isMobile ? 0.5 : 1 }}
             >
-              <VisibilityIcon fontSize={isMobile ? "small" : "medium"} />
+              <VisibilityIcon fontSize={isMobile ? 'small' : 'medium'} />
             </IconButton>
           </Tooltip>
         );
-      }
-    }
+      },
+    },
   ];
 
   return (
-    <Container 
-      maxWidth="lg" 
-      sx={{ 
-        mt: isMobile ? 2 : 4, 
-        mb: isMobile ? 2 : 4,
-        px: isMobile ? 1 : 3
-      }}
-    >
-      <Paper 
-        sx={{ 
-          padding: isMobile ? 2 : 3,
-          borderRadius: isMobile ? 2 : 4
+    <Container maxWidth="lg" sx={{ mt: 3, mb: 6 }}>
+      {/* Alerta de éxito/error */}
+      {alert.open && (
+        <Alert
+          severity={alert.severity}
+          onClose={() => setAlert({ ...alert, open: false })}
+          sx={{ mb: 3 }}
+        >
+          {alert.message}
+        </Alert>
+      )}
+
+      <Paper
+        sx={{
+          p: 3,
+          borderRadius: 3,
+          backgroundColor: '#f8f9ff',
+          border: '1px solid #e0e0e0',
         }}
       >
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          flexDirection: isMobile ? 'column' : 'row',
-          gap: isMobile ? 2 : 0,
-          mb: isMobile ? 2 : 3
-        }}>
-          <Typography 
-            variant={isMobile ? "h5" : "h4"} 
-            gutterBottom
-            sx={{ 
-              fontWeight: 'bold', 
-              color: 'primary.main',
-              textAlign: isMobile ? 'center' : 'left'
-            }}
+        {/* Encabezado */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 2 : 0,
+            mb: 3,
+          }}
+        >
+          <Typography
+            variant="h4"
+            fontWeight="bold"
+            color="primary"
+            sx={{ textAlign: isMobile ? 'center' : 'left' }}
           >
             Historial de Consultas
           </Typography>
-          
           <Button
             variant="contained"
             color="primary"
@@ -210,18 +272,16 @@ const Consultas = () => {
             sx={{
               fontSize: isMobile ? '0.875rem' : '1rem',
               py: isMobile ? 1 : 1.5,
-              px: isMobile ? 2 : 4
+              px: isMobile ? 2 : 4,
+              fontWeight: 600,
             }}
           >
-            {isMobile ? "Nueva" : "Nueva Consulta"}
+            {isMobile ? 'Nueva' : 'Nueva Consulta'}
           </Button>
         </Box>
 
-        <div style={{ 
-          height: isMobile ? 300 : 400, 
-          width: '100%',
-          fontSize: isMobile ? '0.75rem' : '1rem'
-        }}>
+        {/* Tabla */}
+        <Box sx={{ height: isMobile ? 300 : 400, width: '100%' }}>
           <DataGrid
             rows={rows}
             columns={columns}
@@ -241,172 +301,136 @@ const Consultas = () => {
               },
             }}
             sx={{
-              '& .MuiDataGrid-cell': {
-                fontSize: isMobile ? '0.75rem' : '0.875rem',
-              },
-              '& .MuiDataGrid-columnHeaders': {
-                fontSize: isMobile ? '0.75rem' : '0.875rem',
-              },
+              '& .MuiDataGrid-cell': { fontSize: isMobile ? '0.8125rem' : '0.875rem' },
+              '& .MuiDataGrid-columnHeaders': { fontSize: isMobile ? '0.8125rem' : '0.875rem' },
               '& .MuiDataGrid-toolbarContainer': {
                 flexDirection: isMobile ? 'column' : 'row',
                 alignItems: isMobile ? 'flex-start' : 'center',
                 gap: isMobile ? 1 : 0,
-                padding: isMobile ? 1 : 2,
+                p: 1,
               },
             }}
           />
-        </div>
-
-        {/* Modal para nueva consulta */}
-        <Dialog 
-          open={open} 
-          onClose={handleClose}
-          fullScreen={isMobile}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle 
-            sx={{ 
-              backgroundColor: 'primary.main', 
-              color: 'white',
-              fontSize: isMobile ? '1.25rem' : '1.5rem'
-            }}
-          >
-            Registrar Nueva Consulta
-          </DialogTitle>
-          <DialogContent 
-            sx={{ 
-              pt: 2,
-              px: isMobile ? 1.5 : 3
-            }}
-          >
-            <FormControl 
-              fullWidth 
-              margin="normal"
-              size={isMobile ? "small" : "medium"}
-            >
-              <InputLabel 
-                sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-              >
-                Paciente
-              </InputLabel>
-              <Select 
-                name="paciente" 
-                value={formData.paciente} 
-                onChange={handleChange}
-                label="Paciente"
-                sx={{ 
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                }}
-              >
-                {pacientes.map(p => (
-                  <MenuItem 
-                    key={p.id} 
-                    value={p.id}
-                    sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-                  >
-                    {p.nombre} {p.apellido}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl 
-              fullWidth 
-              margin="normal"
-              size={isMobile ? "small" : "medium"}
-            >
-              <InputLabel 
-                sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-              >
-                Médico
-              </InputLabel>
-              <Select 
-                name="medico" 
-                value={formData.medico} 
-                onChange={handleChange}
-                label="Médico"
-                sx={{ 
-                  fontSize: isMobile ? '0.875rem' : '1rem'
-                }}
-              >
-                {medicos.map(m => (
-                  <MenuItem 
-                    key={m.id} 
-                    value={m.id}
-                    sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-                  >
-                    {m.nombre} {m.apellido}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <TextField
-              margin="normal"
-              name="fecha"
-              label="Fecha"
-              type="date"
-              fullWidth
-              InputLabelProps={{ 
-                shrink: true,
-                style: { fontSize: isMobile ? '0.875rem' : '1rem' }
-              }}
-              inputProps={{ 
-                style: { fontSize: isMobile ? '0.875rem' : '1rem' }
-              }}
-              value={formData.fecha}
-              onChange={handleChange}
-              size={isMobile ? "small" : "medium"}
-            />
-
-            <TextField
-              margin="normal"
-              name="motivo"
-              label="Motivo"
-              multiline
-              rows={isMobile ? 3 : 4}
-              fullWidth
-              value={formData.motivo}
-              onChange={handleChange}
-              inputProps={{ 
-                style: { fontSize: isMobile ? '0.875rem' : '1rem' }
-              }}
-              InputLabelProps={{ 
-                style: { fontSize: isMobile ? '0.875rem' : '1rem' }
-              }}
-              size={isMobile ? "small" : "medium"}
-            />
-          </DialogContent>
-          <DialogActions 
-            sx={{ 
-              p: isMobile ? 1.5 : 2,
-              flexDirection: isMobile ? 'column' : 'row',
-              gap: isMobile ? 1 : 0
-            }}
-          >
-            <Button 
-              onClick={handleClose}
-              color="error"
-              fullWidth={isMobile}
-              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-              size={isMobile ? "small" : "medium"}
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmit} 
-              variant="contained" 
-              color="primary"
-              fullWidth={isMobile}
-              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
-              size={isMobile ? "small" : "medium"}
-            >
-              Guardar
-            </Button>
-          </DialogActions>
-        </Dialog>
+        </Box>
       </Paper>
+
+      {/* Modal */}
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        fullScreen={isMobile}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle
+          sx={{
+            bgcolor: '#1976d2',
+            color: 'white',
+            fontSize: isMobile ? '1.25rem' : '1.5rem',
+          }}
+        >
+          Registrar Nueva Consulta
+        </DialogTitle>
+        <DialogContent sx={{ p: isMobile ? 2 : 3 }}>
+          <FormControl fullWidth margin="normal" error={!!errors.paciente}>
+            <InputLabel sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}>Paciente</InputLabel>
+            <Select
+              name="paciente"
+              value={formData.paciente}
+              onChange={handleChange}
+              label="Paciente"
+              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
+            >
+              {pacientes.map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.nombre} {p.apellido}
+                </MenuItem>
+              ))}
+            </Select>
+            {errors.paciente && (
+              <Typography color="error" variant="caption">{errors.paciente}</Typography>
+            )}
+          </FormControl>
+
+          <FormControl fullWidth margin="normal" error={!!errors.medico}>
+            <InputLabel sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}>Médico</InputLabel>
+            <Select
+              name="medico"
+              value={formData.medico}
+              onChange={handleChange}
+              label="Médico"
+              sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
+            >
+              {medicos.map((m) => (
+                <MenuItem key={m.id} value={m.id}>
+                  Dr. {m.nombre} {m.apellido}
+                </MenuItem>
+              ))}
+            </Select>
+            {errors.medico && (
+              <Typography color="error" variant="caption">{errors.medico}</Typography>
+            )}
+          </FormControl>
+
+          <TextField
+            margin="normal"
+            name="fecha"
+            label="Fecha"
+            type="date"
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+            value={formData.fecha}
+            onChange={handleChange}
+            error={!!errors.fecha}
+            helperText={errors.fecha}
+            InputProps={{ style: { fontSize: isMobile ? '0.875rem' : '1rem' } }}
+            InputLabelProps={{ style: { fontSize: isMobile ? '0.875rem' : '1rem' } }}
+          />
+
+          <TextField
+            margin="normal"
+            name="motivo"
+            label="Motivo"
+            multiline
+            rows={isMobile ? 3 : 4}
+            fullWidth
+            value={formData.motivo}
+            onChange={handleChange}
+            error={!!errors.motivo}
+            helperText={errors.motivo}
+            InputProps={{ style: { fontSize: isMobile ? '0.875rem' : '1rem' } }}
+            InputLabelProps={{ style: { fontSize: isMobile ? '0.875rem' : '1rem' } }}
+          />
+        </DialogContent>
+        <DialogActions
+          sx={{
+            p: isMobile ? 2 : 3,
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 1 : 0,
+          }}
+        >
+          <Button
+            onClick={handleClose}
+            color="error"
+            fullWidth={isMobile}
+            size={isMobile ? 'small' : 'medium'}
+            sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
+            color="primary"
+            disabled={formLoading}
+            fullWidth={isMobile}
+            sx={{ fontSize: isMobile ? '0.875rem' : '1rem' }}
+            size={isMobile ? 'small' : 'medium'}
+          >
+            {formLoading ? <CircularProgress size={20} color="inherit" /> : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

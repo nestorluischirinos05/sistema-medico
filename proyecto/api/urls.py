@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import MedicoViewSet, PacienteViewSet, ConsultaViewSet, LoginView, obtener_diagnostico_por_consulta,  obtener_diagnosticos_por_paciente
+from .views import MedicoViewSet, PacienteViewSet, ConsultaViewSet, LoginView, obtener_diagnostico_por_consulta,  obtener_diagnosticos_por_paciente,ExamenMedicoDetail, ExamenMedicoListCreate, ExamenesPorPaciente, descargar_archivo_examen, TipoExamenListCreate, DiagnosticoList, buscar_paciente_por_dni, obtener_citas_por_medico, obtener_citas_por_paciente, CitaListCreate, listar_todas_citas, AntecedenteMedicoDetail
 from . import views
 router = DefaultRouter()
 router.register(r'medicos', MedicoViewSet)
@@ -21,7 +21,7 @@ urlpatterns = [
 
     path('especialidades/', views.EspecialidadListCreate.as_view()),
     path('historia-clinica/paciente/<int:paciente_id>/', views.historia_clinica_paciente_detalles),
-    path('diagnosticos/', views.crear_diagnostico),
+    #path('diagnosticos/', views.crear_diagnostico),
     path('diagnosticos/consulta/<int:consulta_id>/', views.obtener_diagnostico_por_consulta),
     path('diagnosticos/paciente/<int:paciente_id>/', views.obtener_diagnosticos_por_paciente),
     path('tratamientos/', views.crear_tratamiento),
@@ -32,5 +32,29 @@ urlpatterns = [
     path('paciente/medicos/', views.listar_medicos_para_paciente, name='listar_medicos_para_paciente'),
     path('admin/citas/', views.crear_cita_admin, name='crear_cita_admin'),  # Para administradores
     path('', include(router.urls)),
-]
 
+    path('examenes/', views.ExamenMedicoListCreate.as_view(), name='examenes-list-create'),
+    # DESPUÉS
+    path('tipo-examenes/', views.TipoExamenListCreate.as_view(), name='tipo-examenes-list-create'),
+    path('examenes/<int:pk>/', views.ExamenMedicoDetail.as_view(), name='examen-detail'),
+    path('paciente/<int:paciente_id>/examenes/', views.ExamenesPorPaciente.as_view(), name='examenes-por-paciente'),
+    path('examenes/<int:examen_id>/descargar/', views.descargar_archivo_examen, name='descargar-examen'),
+    path('diagnosticos/', views.DiagnosticoList.as_view(), name='diagnosticos-list'),
+    # api/urls.py
+    path('buscar-paciente/', views.buscar_paciente_por_dni, name='buscar_paciente_por_dni'), 
+    # api/urls.py
+    path('buscar-medico/', views.buscar_medico_por_dni, name='buscar_medico_por_dni'), 
+    # api/urls.py
+    path('citas/', views.CitaListCreate.as_view(), name='citas-list-create'),
+    path('citas/medico/', views.obtener_citas_por_medico, name='citas_por_medico'),
+    path('citas/paciente/', views.obtener_citas_por_paciente, name='citas_por_paciente'),
+    # api/urls.py
+    path('citas/todas/', views.listar_todas_citas, name='listar_todas_citas'),
+    path('antecedentes/<int:paciente_id>/', views.AntecedenteMedicoDetail.as_view(), name='antecedentes-detail'),
+    # api/urls.py
+    path('citas/<int:cita_id>/', views.gestionar_cita, name='gestionar_cita'),
+    # api/urls.py
+    path('notificaciones/', views.crear_notificacion, name='crear_notificacion'),
+    path('mis-notificaciones/', views.mis_notificaciones, name='mis_notificaciones'),
+]
+urlpatterns += router.urls

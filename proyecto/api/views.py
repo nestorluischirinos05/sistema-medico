@@ -1,14 +1,15 @@
 # api/views.py
-from rest_framework import viewsets, generics, status
+from rest_framework import viewsets, permissions, generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListCreateAPIView
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
 from django.db import connection
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Medico, Paciente, Consulta, Especialidad, HistoriaClinica, Diagnostico, Tratamiento, Usuario, Rol,Cita
+from .models import Medico, Paciente, Consulta, Especialidad, HistoriaClinica, Diagnostico, Tratamiento, Usuario, Rol,Cita,TipoExamen, AntecedenteMedico, Notificacion
 from .serializers import (
     MedicoSerializer, 
     PacienteSerializer, 
@@ -18,8 +19,14 @@ from .serializers import (
     DiagnosticoSerializer, 
     TratamientoSerializer,
     RegistroSerializer,
-    CitaSerializer
+    CitaSerializer, ExamenMedicoSerializer, ExamenMedico,TipoExamenSerializer, AntecedenteMedicoSerializer, NotificacionSerializer
+
 )
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.conf import settings
+from datetime import datetime
+from django.contrib.auth.models import User
 
 # === VISTAS DE AUTENTICACIÓN Y USUARIOS ===
 
@@ -31,9 +38,13 @@ class LoginView(APIView):
 
         # Autenticar con el campo 'password'
         user = authenticate(username=correo, password=password)
-
+        
         if user:
             refresh = RefreshToken.for_user(user)
+            # Inicializar medico_id como None
+            medico_id = None
+            if hasattr(user, 'medico'):  # Verifica si el usuario tiene perfil de médico
+                medico_id = user.medico.id
             return Response({
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
@@ -42,103 +53,124 @@ class LoginView(APIView):
                 'is_staff': user.is_staff,
                 'correo': user.correo,
                 'rol': user.rol.nombre if user.rol else 'Sin rol',
-                'rol_codigo': user.rol.codigo if user.rol else 'sin_rol'
+                'rol_codigo': user.rol.codigo if user.rol else 'sin_rol',
+                'medico_id': medico_id
+                
             }, status=status.HTTP_200_OK)
         else:
             return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
 
-
+# api/views.py
 @api_view(['POST'])
 def registro_usuario(request):
     """
-    Permite el registro público de usuarios. Si el rol es 'paciente',
-    crea automáticamente un registro de Paciente asociado.
+    Registra un usuario. Si el rol es 'paciente', busca un Paciente por DNI
+    y lo asocia. Si no existe, lo crea.
     """
     # Datos para Usuario
     correo = request.data.get('correo')
     nombre = request.data.get('nombre')
     apellido = request.data.get('apellido')
     password = request.data.get('password')
-    rol_codigo = request.data.get('rol_codigo', 'paciente') # Valor por defecto
+    rol_codigo = request.data.get('rol_codigo', 'paciente')
 
-    # Datos adicionales para Paciente (solo si es paciente)
-    dni = request.data.get('dni', '')
+    # Datos adicionales para paciente
+    dni = request.data.get('dni', '').strip()
     fecha_nacimiento_str = request.data.get('fecha_nacimiento', None)
-    telefono = request.data.get('telefono', '')
-    direccion = request.data.get('direccion', '')
+    telefono = request.data.get('telefono', '').strip()
+    direccion = request.data.get('direccion', '').strip()
 
-    # Validaciones básicas para Usuario
+    # Validaciones básicas
     if not all([correo, nombre, apellido, password]):
-        return Response(
-            {'error': 'Los campos correo, nombre, apellido y contraseña son obligatorios.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({
+            'error': 'Los campos correo, nombre, apellido y contraseña son obligatorios.'
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Verificar si el correo ya existe
+    correo = correo.strip().lower()
+    if '@' not in correo:
+        return Response({
+            'error': 'El correo electrónico no es válido.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     if Usuario.objects.filter(correo=correo).exists():
-        return Response(
-            {'error': 'Ya existe un usuario con este correo electrónico.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({
+            'error': 'Ya existe un usuario con este correo electrónico.'
+        }, status=status.HTTP_400_BAD_REQUEST)
 
+    # Obtener rol
     try:
-        # Obtener el rol
         rol = Rol.objects.get(codigo=rol_codigo)
     except Rol.DoesNotExist:
-        # Si el rol no existe, asignar 'paciente' por defecto
-        rol = Rol.objects.get(codigo='paciente')
+        return Response({
+            'error': f'El rol "{rol_codigo}" no existe.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Procesar fecha de nacimiento
+    fecha_nacimiento = None
+    if fecha_nacimiento_str:
+        try:
+            fecha_nacimiento = datetime.strptime(fecha_nacimiento_str.strip(), '%Y-%m-%d').date()
+        except ValueError:
+            return Response({
+                'error': 'Formato de fecha de nacimiento inválido. Usa YYYY-MM-DD.'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         # Crear el usuario
         user = Usuario.objects.create_user(
             correo=correo,
-            nombre=nombre,
-            apellido=apellido,
+            nombre=nombre.strip(),
+            apellido=apellido.strip(),
             password=password,
             rol=rol
         )
-        
-        # === LÓGICA NUEVA: Crear Paciente automáticamente si el rol es 'paciente' ===
-        paciente_creado = None
-        if rol.codigo == 'paciente':
-            # Validaciones específicas para pacientes
-            if not dni:
-                # Opcional: puedes hacerlo obligatorio o generar un temporal
-                dni = f"TEMP_{user.id}"
-                
-            # Manejar la fecha de nacimiento
-            from datetime import datetime
-            fecha_nacimiento = None
-            if fecha_nacimiento_str:
-                try:
-                    # Asumiendo formato YYYY-MM-DD
-                    fecha_nacimiento = datetime.strptime(fecha_nacimiento_str, '%Y-%m-%d').date()
-                except ValueError:
-                    # Si hay error en la fecha, dejamos fecha_nacimiento como None
-                    pass
 
-            try:
+        paciente_creado = None
+
+        # Lógica para pacientes
+        if rol.codigo == 'paciente':
+            if not dni:
+                return Response({
+                    'error': 'El DNI es obligatorio para pacientes.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Buscar paciente existente por DNI
+            paciente = Paciente.objects.filter(dni=dni).first()
+
+            if paciente:
+                # Asociar el usuario al paciente existente
+                if paciente.usuario:
+                    return Response({
+                        'error': f'El paciente con DNI {dni} ya tiene un usuario asociado.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                paciente.usuario = user
+                paciente.nombre = nombre.strip()
+                paciente.apellido = apellido.strip()
+                if fecha_nacimiento:
+                    paciente.fecha_nacimiento = fecha_nacimiento
+                if telefono:
+                    paciente.telefono = telefono
+                if direccion:
+                    paciente.direccion = direccion
+                paciente.save()
+                paciente_creado = paciente
+            else:
+                # Crear nuevo paciente
                 paciente_creado = Paciente.objects.create(
                     usuario=user,
-                    nombre=nombre,
-                    apellido=apellido,
+                    nombre=nombre.strip(),
+                    apellido=apellido.strip(),
                     dni=dni,
                     fecha_nacimiento=fecha_nacimiento,
                     telefono=telefono,
-                    direccion=direccion,
+                    direccion=direccion
                 )
-                print(f"Paciente creado automáticamente para el usuario {user.correo}")
-            except Exception as e:
-                # Si falla la creación del paciente, borramos el usuario para mantener consistencia
-                user.delete()
-                return Response(
-                    {'error': f'Error al crear el perfil de paciente: {str(e)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-        # ======================================================================
 
         return Response({
-            'message': 'Usuario registrado exitosamente.' + (' Y perfil de paciente creado.' if paciente_creado else ''),
+            'message': 'Usuario registrado exitosamente.' + (
+                ' Y perfil de paciente asociado/creado.' if paciente_creado else ''
+            ),
             'user': {
                 'id': user.id,
                 'correo': user.correo,
@@ -150,11 +182,9 @@ def registro_usuario(request):
         }, status=status.HTTP_201_CREATED)
 
     except Exception as e:
-        return Response(
-            {'error': f'Error al crear el usuario: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
+        return Response({
+            'error': f'Error interno al crear el usuario: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # === VISTAS PARA ADMINISTRADORES ===
 
@@ -224,9 +254,41 @@ def crear_usuario_admin(request):
 
 # === VIEWSETS PARA MODELOS ===
 
+class EsAdminOPublico(permissions.BasePermission):
+    """
+    Permite acceso de lectura a todos, pero escritura solo a admin.
+    """
+    def has_permission(self, request, view):
+        # Todos pueden leer (GET)
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # Solo admin puede modificar (POST, PUT, DELETE)
+        return request.user.is_authenticated and request.user.is_staff
+
 class MedicoViewSet(viewsets.ModelViewSet):
     queryset = Medico.objects.select_related('especialidad').all()
     serializer_class = MedicoSerializer
+    permission_classes = [EsAdminOPublico]  # GET para todos, POST/PUT/DELETE solo para admin
+
+    # Opcional: Si quieres que solo los autenticados vean la lista, usa esto en su lugar:
+    # permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_context(self):
+        """
+        Asegura que el contexto incluya la request para uso en el serializer.
+        """
+        context = super().get_serializer_context()
+        context.update({"request": self.request})
+        return context
+
+    @action(detail=False, methods=['get'], url_path='disponibles')
+    def disponibles(self, request):
+        """
+        Endpoint opcional: devuelve solo médicos activos o disponibles.
+        """
+        medicos = self.get_queryset()
+        serializer = self.get_serializer(medicos, many=True)
+        return Response(serializer.data)
 
 class PacienteViewSet(viewsets.ModelViewSet):
     queryset = Paciente.objects.all()
@@ -768,3 +830,387 @@ def crear_cita_admin(request):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     except Exception as e:
         return Response({'error': f'Error al crear la cita: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ExamenMedicoListCreate(generics.ListCreateAPIView):
+    queryset = ExamenMedico.objects.all().select_related(
+        'paciente', 'medico', 'tipo_examen', 'diagnostico_relacionado'
+    )
+    serializer_class = ExamenMedicoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # Asignar médico desde el usuario autenticado
+        try:
+            medico = self.request.user.medico  # Asume que el usuario logueado es médico
+            serializer.save(medico=medico)
+        except Medico.DoesNotExist:
+            raise serializers.ValidationError("El usuario no tiene un perfil de médico asociado.")
+
+class ExamenMedicoDetail(generics.RetrieveUpdateDestroyAPIView):
+    queryset = ExamenMedico.objects.all()
+    serializer_class = ExamenMedicoSerializer
+    permission_classes = [IsAuthenticated]
+
+class ExamenesPorPaciente(generics.ListAPIView):
+    serializer_class = ExamenMedicoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        paciente_id = self.kwargs['paciente_id']
+        return ExamenMedico.objects.filter(paciente_id=paciente_id).order_by('-fecha_solicitud')
+
+# Vista para descargar archivos
+def descargar_archivo_examen(request, examen_id):
+    examen = get_object_or_404(ExamenMedico, id=examen_id)
+    if not examen.archivo_resultado:
+        return Response({'error': 'No hay archivo para descargar'}, status=404)
+    
+    file_path = examen.archivo_resultado.path
+    with open(file_path, 'rb') as fh:
+        response = HttpResponse(fh.read(), content_type="application/octet-stream")
+        response['Content-Disposition'] = f'attachment; filename={os.path.basename(file_path)}'
+        return response
+
+# DESPUÉS ✅
+class TipoExamenListCreate(generics.ListCreateAPIView):
+    queryset = TipoExamen.objects.all()
+    serializer_class = TipoExamenSerializer
+    permission_classes = [IsAuthenticated]  # O [IsAdminUser] si solo admins pueden crear
+
+class DiagnosticoList(generics.ListCreateAPIView):
+    queryset = Diagnostico.objects.all()
+    serializer_class = DiagnosticoSerializer
+
+@api_view(['GET'])
+def buscar_paciente_por_dni(request):
+    dni = request.query_params.get('dni', '').strip()
+    if not dni:
+        return Response({'error': 'El DNI es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        paciente = Paciente.objects.get(dni=dni)
+        return Response({
+            'id': paciente.id,
+            'nombre': paciente.nombre,
+            'apellido': paciente.apellido,
+            'fecha_nacimiento': paciente.fecha_nacimiento,
+            'telefono': paciente.telefono,
+            'direccion': paciente.direccion,
+            'existe': True
+        })
+    except Paciente.DoesNotExist:
+        return Response({'existe': False})
+    
+@api_view(['GET'])
+def buscar_medico_por_dni(request):
+    dni = request.query_params.get('dni', '').strip()
+    if not dni:
+        return Response({'error': 'El DNI es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        medico = Medico.objects.get(dni=dni)
+        return Response({
+            'existe': True,
+            'nombre_completo': f"{medico.nombre} {medico.apellido}"
+        })
+    except Medico.DoesNotExist:
+        return Response({'existe': False})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def obtener_citas_por_medico(request):
+    """
+    Devuelve las citas del médico autenticado.
+    Si el usuario es admin, puede ver todas las citas o filtrar por médico.
+    Filtros opcionales: fecha_inicio, fecha_fin, medico_id (solo para admin)
+    """
+    # Variables para filtrar
+    fecha_inicio_str = request.query_params.get('fecha_inicio', None)
+    fecha_fin_str = request.query_params.get('fecha_fin', None)
+    medico_id = request.query_params.get('medico_id', None)
+
+    # Inicializar el queryset
+    citas = Cita.objects.all().select_related('paciente', 'medico')
+
+    # Lógica según el tipo de usuario
+    if request.user.is_staff:
+        # Admin: puede ver todas las citas
+        if medico_id:
+            try:
+                medico_id = int(medico_id)
+                citas = citas.filter(medico_id=medico_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': 'El parámetro medico_id debe ser un número válido.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+    else:
+        # Médico regular: solo ve sus citas
+        try:
+            medico = request.user.medico
+            citas = citas.filter(medico=medico)
+        except Medico.DoesNotExist:
+            return Response(
+                {'error': 'El usuario no tiene un perfil de médico asociado.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+    # Aplicar filtros de fecha
+    if fecha_inicio_str:
+        try:
+            fecha_inicio = datetime.fromisoformat(fecha_inicio_str)
+            citas = citas.filter(fecha_hora_propuesta__gte=fecha_inicio)
+        except ValueError:
+            return Response(
+                {'error': 'Formato de fecha_inicio inválido. Usa ISO 8601 (ej: 2025-08-01T08:00:00).'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    if fecha_fin_str:
+        try:
+            fecha_fin = datetime.fromisoformat(fecha_fin_str)
+            citas = citas.filter(fecha_hora_propuesta__lte=fecha_fin)
+        except ValueError:
+            return Response(
+                {'error': 'Formato de fecha_fin inválido. Usa ISO 8601 (ej: 2025-08-31T18:00:00).'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    # Ordenar por fecha
+    citas = citas.order_by('fecha_hora_propuesta')
+
+    # Serializar manualmente para FullCalendar
+    eventos = []
+    for cita in citas:
+        eventos.append({
+            'id': cita.id,
+            'title': f"{cita.paciente.nombre} {cita.paciente.apellido}",
+            'start': cita.fecha_hora_propuesta.isoformat(),
+            'end': cita.fecha_hora_propuesta.isoformat(),  # Puedes ajustar duración si lo deseas
+            'extendedProps': {
+                'motivo': cita.motivo or 'Sin motivo',
+                'estado': cita.estado,
+                'paciente_id': cita.paciente.id,
+                'paciente_nombre': f"{cita.paciente.nombre} {cita.paciente.apellido}",
+                'medico_id': cita.medico.id,
+                'medico_nombre': f"{cita.medico.nombre} {cita.medico.apellido}",
+            },
+            'backgroundColor': (
+                '#4CAF50' if cita.estado == 'confirmada' else
+                '#FF9800' if cita.estado == 'solicitada' else
+                '#F44336' if cita.estado == 'cancelada' else
+                '#9E9E9E'
+            ),
+            'borderColor': '#000',
+            'textColor': '#fff',
+        })
+
+    return Response(eventos, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def obtener_citas_por_paciente(request):
+    """
+    Devuelve las citas del paciente autenticado.
+    """
+    try:
+        paciente = request.user.paciente
+    except Paciente.DoesNotExist:
+        return Response(
+            {'error': 'El usuario no tiene un perfil de paciente asociado.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    citas = Cita.objects.filter(paciente=paciente).select_related('medico').order_by('fecha_hora_propuesta')
+
+    eventos = []
+    for cita in citas:
+        eventos.append({
+            'id': cita.id,
+            'title': f"Dr. {cita.medico.nombre} {cita.medico.apellido}",
+            'start': cita.fecha_hora_propuesta.isoformat(),
+            'end': (cita.fecha_hora_propuesta).isoformat(),
+            'extendedProps': {
+                'motivo': cita.motivo,
+                'estado': cita.estado,
+                'medico_id': cita.medico.id,
+            },
+            'backgroundColor': (
+                '#4CAF50' if cita.estado == 'confirmada' else
+                '#FF9800' if cita.estado == 'solicitada' else
+                '#F44336' if cita.estado == 'cancelada' else
+                '#9E9E9E'
+            ),
+            'borderColor': '#000'
+        })
+
+    return Response(eventos, status=status.HTTP_200_OK)
+
+class CitaListCreate(ListCreateAPIView):
+    queryset = Cita.objects.all().select_related('paciente', 'medico')
+    serializer_class = CitaSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # El paciente y médico ya vienen en los datos
+        # Puedes agregar lógica adicional si lo necesitas
+        serializer.save()
+
+from .models import Cita
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def listar_todas_citas(request):
+    """
+    Solo para admins: devuelve todas las citas del sistema.
+    """
+    if not request.user.is_staff:
+        return Response({'error': 'No tienes permiso para ver esta información.'}, status=403)
+
+    citas = Cita.objects.all().select_related('paciente', 'medico')
+    eventos = []
+    for cita in citas:
+        eventos.append({
+            'id': cita.id,
+            'title': f"{cita.paciente.nombre} {cita.paciente.apellido}",
+            'start': cita.fecha_hora_propuesta.isoformat(),
+            'end': cita.fecha_hora_propuesta.isoformat(),
+            'extendedProps': {
+                'motivo': cita.motivo,
+                'estado': cita.estado,
+                'paciente_id': cita.paciente.id,
+                'medico_id': cita.medico.id,
+                'medico_nombre': f"{cita.medico.nombre} {cita.medico.apellido}",
+            },
+            'backgroundColor': (
+                '#4CAF50' if cita.estado == 'confirmada' else
+                '#FF9800' if cita.estado == 'solicitada' else
+                '#F44336' if cita.estado == 'cancelada' else
+                '#9E9E9E'
+            ),
+            'borderColor': '#000',
+        })
+    return Response(eventos, status=200)
+
+class AntecedenteMedicoDetail(generics.RetrieveUpdateAPIView):
+    """
+    Obtener o actualizar los antecedentes médicos de un paciente.
+    Solo accesible para médicos o admin.
+    """
+    queryset = AntecedenteMedico.objects.all()
+    serializer_class = AntecedenteMedicoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        # Obtiene los antecedentes del paciente especificado en la URL
+        paciente_id = self.kwargs['paciente_id']
+        antecedente, created = AntecedenteMedico.objects.get_or_create(
+            paciente_id=paciente_id
+        )
+        return antecedente
+
+# api/views.py
+class CitaViewSet(viewsets.ModelViewSet):
+    queryset = Cita.objects.all()
+    serializer_class = CitaSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return Cita.objects.all()
+        elif hasattr(user, 'medico'):
+            return Cita.objects.filter(medico=user.medico)
+        elif hasattr(user, 'paciente'):
+            return Cita.objects.filter(paciente=user.paciente)
+        return Cita.objects.none()
+
+    @action(detail=True, methods=['delete'], url_path='eliminar')
+    def eliminar(self, request, pk=None):
+        cita = self.get_object()
+        user = request.user
+        if not (user.is_staff or (hasattr(user, 'medico') and user.medico == cita.medico)):
+            return Response({'error': 'Permiso denegado'}, status=403)
+        cita.delete()
+        return Response({'message': 'Cita eliminada.'})
+    
+# api/views.py
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def gestionar_cita(request, cita_id):
+    try:
+        cita = Cita.objects.get(id=cita_id)
+    except Cita.DoesNotExist:
+        return Response({'error': 'Cita no encontrada.'}, status=404)
+
+    user = request.user
+    puede_editar = False
+    puede_eliminar = False
+
+    if user.is_staff:
+        puede_editar = puede_eliminar = True
+    elif hasattr(user, 'medico') and user.medico == cita.medico:
+        puede_editar = puede_eliminar = True
+    elif hasattr(user, 'paciente') and user.paciente == cita.paciente:
+        puede_editar = True  # El paciente puede editar (motivo, estado)
+        puede_eliminar = False  # Pero no eliminar
+
+    # === DELETE ===
+    if request.method == 'DELETE':
+        if not puede_eliminar:
+            return Response({'error': 'No tienes permiso para eliminar esta cita.'}, status=403)
+        cita.delete()
+        return Response({'message': 'Cita eliminada correctamente.'}, status=200)
+
+    # === PUT ===
+    if request.method == 'PUT':
+        if not puede_editar:
+            return Response({'error': 'No tienes permiso para editar esta cita.'}, status=403)
+
+        serializer = CitaSerializer(cita, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+    
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def crear_notificacion(request):
+    """
+    Crea una notificación para un usuario.
+    Usado internamente por el sistema.
+    """
+    data = request.data.copy()
+    # Solo admin o sistema puede asignar a otro usuario
+    if not request.user.is_staff:
+        data['usuario'] = request.user.id
+
+    serializer = NotificacionSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mis_notificaciones(request):
+    notificaciones = Notificacion.objects.filter(usuario=request.user).order_by('-fecha')
+    serializer = NotificacionSerializer(notificaciones, many=True)
+    return Response(serializer.data)
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def marcar_notificacion_leida(request, notificacion_id):
+    """
+    Marca una notificación como leída
+    """
+    try:
+        notificacion = Notificacion.objects.get(id=notificacion_id, usuario=request.user)
+    except Notificacion.DoesNotExist:
+        return Response({'error': 'Notificación no encontrada'}, status=404)
+
+    notificacion.leida = True
+    notificacion.save()
+    return Response({'message': 'Notificación marcada como leída'})

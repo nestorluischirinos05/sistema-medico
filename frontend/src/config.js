@@ -1,12 +1,12 @@
 // src/config.js
 const CONFIG = {
   // Reemplaza '192.168.1.15' con la IP real de tu máquina
-  API_BASE_URL: 'https://sistema-medico-4cew.onrender.com'
+  API_BASE_URL: 'http://localhost:8000'
 };
 
 export default CONFIG;
 /*
-
+https://sistema-medico-4cew.onrender.com  http://localhost:8000
 > frontend@0.1.0 start
 > react-scripts start
 
