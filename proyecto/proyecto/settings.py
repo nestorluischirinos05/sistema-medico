@@ -142,7 +142,7 @@ CORS_ALLOWED_ORIGINS = [
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "sistema-caresolutions.vercel.app",  # ✅ Dominio de tu backend en Render
+    "sistema-medico-4cew.onrender.com",  # ✅ Dominio de tu backend en Render
     "*.onrender.com",                    # ✅ Permite cualquier subdominio de Render (recomendado)
 ]
 # Internationalization
