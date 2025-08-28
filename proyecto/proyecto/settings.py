@@ -137,12 +137,12 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
    "http://localhost:3000",     # Para desarrollo local en la misma máquina
    "http://192.168.1.111:3000",
-   "https://sistema-medico-nine.vercel.app",
+   "https://sistema-caresolutions.vercel.app",
 ]
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "sistema-medico-4cew.onrender.com",  # ✅ Dominio de tu backend en Render
+    "sistema-caresolutions.vercel.app",  # ✅ Dominio de tu backend en Render
     "*.onrender.com",                    # ✅ Permite cualquier subdominio de Render (recomendado)
 ]
 # Internationalization
