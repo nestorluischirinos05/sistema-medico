@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',  # ✅ Añadido
     'django_extensions',
     'api',
+    'consultorio',
 ]
  
 MIDDLEWARE = [
